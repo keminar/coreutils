@@ -1,6 +1,6 @@
 /* uint64_t-like operations that work even on hosts lacking uint64_t
 
-   Copyright (C) 2006, 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2006 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -17,15 +17,8 @@
 
 /* Written by Paul Eggert.  */
 
+#include <stddef.h>
 #include <stdint.h>
-
-#ifndef _GL_INLINE_HEADER_BEGIN
- #error "Please include config.h first."
-#endif
-_GL_INLINE_HEADER_BEGIN
-#ifndef _GL_U64_INLINE
-# define _GL_U64_INLINE _GL_INLINE
-#endif
 
 /* Return X rotated left by N bits, where 0 < N < 64.  */
 #define u64rol(x, n) u64or (u64shl (x, n), u64shr (x, 64 - n))
@@ -38,7 +31,6 @@ typedef uint64_t u64;
 # define u64hilo(hi, lo) ((u64) (((u64) (hi) << 32) + (lo)))
 # define u64init(hi, lo) u64hilo (hi, lo)
 # define u64lo(x) ((u64) (x))
-# define u64size(x) u64lo (x)
 # define u64lt(x, y) ((x) < (y))
 # define u64and(x, y) ((x) & (y))
 # define u64or(x, y) ((x) | (y))
@@ -62,7 +54,7 @@ typedef struct { uint32_t lo, hi; } u64;
 
 /* Given the high and low-order 32-bit quantities HI and LO, return a u64
    value representing (HI << 32) + LO.  */
-_GL_U64_INLINE u64
+static inline u64
 u64hilo (uint32_t hi, uint32_t lo)
 {
   u64 r;
@@ -72,7 +64,7 @@ u64hilo (uint32_t hi, uint32_t lo)
 }
 
 /* Return a u64 value representing LO.  */
-_GL_U64_INLINE u64
+static inline u64
 u64lo (uint32_t lo)
 {
   u64 r;
@@ -81,25 +73,15 @@ u64lo (uint32_t lo)
   return r;
 }
 
-/* Return a u64 value representing SIZE.  */
-_GL_U64_INLINE u64
-u64size (size_t size)
-{
-  u64 r;
-  r.hi = size >> 31 >> 1;
-  r.lo = size;
-  return r;
-}
-
 /* Return X < Y.  */
-_GL_U64_INLINE int
+static inline int
 u64lt (u64 x, u64 y)
 {
   return x.hi < y.hi || (x.hi == y.hi && x.lo < y.lo);
 }
 
 /* Return X & Y.  */
-_GL_U64_INLINE u64
+static inline u64
 u64and (u64 x, u64 y)
 {
   u64 r;
@@ -109,7 +91,7 @@ u64and (u64 x, u64 y)
 }
 
 /* Return X | Y.  */
-_GL_U64_INLINE u64
+static inline u64
 u64or (u64 x, u64 y)
 {
   u64 r;
@@ -119,7 +101,7 @@ u64or (u64 x, u64 y)
 }
 
 /* Return X ^ Y.  */
-_GL_U64_INLINE u64
+static inline u64
 u64xor (u64 x, u64 y)
 {
   u64 r;
@@ -129,7 +111,7 @@ u64xor (u64 x, u64 y)
 }
 
 /* Return X + Y.  */
-_GL_U64_INLINE u64
+static inline u64
 u64plus (u64 x, u64 y)
 {
   u64 r;
@@ -139,7 +121,7 @@ u64plus (u64 x, u64 y)
 }
 
 /* Return X << N.  */
-_GL_U64_INLINE u64
+static inline u64
 u64shl (u64 x, int n)
 {
   u64 r;
@@ -157,7 +139,7 @@ u64shl (u64 x, int n)
 }
 
 /* Return X >> N.  */
-_GL_U64_INLINE u64
+static inline u64
 u64shr (u64 x, int n)
 {
   u64 r;
@@ -175,5 +157,3 @@ u64shr (u64 x, int n)
 }
 
 #endif
-
-_GL_INLINE_HEADER_END

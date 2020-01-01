@@ -1,30 +1,29 @@
-# serial 25
-dnl Copyright (C) 2002-2003, 2005-2007, 2009-2016 Free Software Foundation,
-dnl Inc.
+# serial 15
+dnl Copyright (C) 2002-2003, 2005-2007, 2009 Free Software Foundation, Inc.
 dnl This file is free software; the Free Software Foundation
 dnl gives unlimited permission to copy and/or distribute it,
 dnl with or without modifications, as long as this notice is preserved.
 
 dnl From Jim Meyering.
 
-AC_DEFUN([gl_FUNC_MKTIME],
-[
-  AC_REQUIRE([gl_HEADER_TIME_H_DEFAULTS])
-
-  dnl We don't use AC_FUNC_MKTIME any more, because it is no longer maintained
-  dnl in Autoconf and because it invokes AC_LIBOBJ.
-  AC_CHECK_HEADERS_ONCE([unistd.h])
-  AC_CHECK_DECLS_ONCE([alarm])
-  AC_REQUIRE([gl_MULTIARCH])
-  if test $APPLE_UNIVERSAL_BUILD = 1; then
-    # A universal build on Apple Mac OS X platforms.
-    # The test result would be 'yes' in 32-bit mode and 'no' in 64-bit mode.
-    # But we need a configuration result that is valid in both modes.
-    gl_cv_func_working_mktime=no
-  fi
-  AC_CACHE_CHECK([for working mktime], [gl_cv_func_working_mktime],
-    [AC_RUN_IFELSE(
-       [AC_LANG_SOURCE(
+# Redefine AC_FUNC_MKTIME, to fix a bug in Autoconf 2.61a and earlier.
+# This redefinition can be removed once a new version of Autoconf is assumed.
+# The redefinition is taken from
+# <http://cvs.sv.gnu.org/viewcvs/*checkout*/autoconf/autoconf/lib/autoconf/functions.m4?rev=1.119>.
+# AC_FUNC_MKTIME
+# --------------
+AC_DEFUN([AC_FUNC_MKTIME],
+[AC_CHECK_HEADERS_ONCE([unistd.h])
+AC_CHECK_FUNCS_ONCE([alarm])
+AC_REQUIRE([gl_MULTIARCH])
+if test $APPLE_UNIVERSAL_BUILD = 1; then
+  # A universal build on Apple MacOS X platforms.
+  # The test result would be 'yes' in 32-bit mode and 'no' in 64-bit mode.
+  # But we need a configuration result that is valid in both modes.
+  ac_cv_func_working_mktime=no
+fi
+AC_CACHE_CHECK([for working mktime], [ac_cv_func_working_mktime],
+[AC_RUN_IFELSE([AC_LANG_SOURCE(
 [[/* Test program from Paul Eggert and Tony Leneis.  */
 #include <limits.h>
 #include <stdlib.h>
@@ -34,8 +33,8 @@ AC_DEFUN([gl_FUNC_MKTIME],
 # include <unistd.h>
 #endif
 
-#if HAVE_DECL_ALARM
-# include <signal.h>
+#ifndef HAVE_ALARM
+# define alarm(X) /* empty */
 #endif
 
 /* Work around redefinition to rpl_putenv by other config tests.  */
@@ -86,8 +85,8 @@ static int
 mktime_test (time_t now)
 {
   return (mktime_test1 (now)
-          && mktime_test1 ((time_t) (time_t_max - now))
-          && mktime_test1 ((time_t) (time_t_min + now)));
+	  && mktime_test1 ((time_t) (time_t_max - now))
+	  && mktime_test1 ((time_t) (time_t_min + now)));
 }
 
 static int
@@ -117,17 +116,17 @@ bigtime_test (int j)
     {
       struct tm *lt = localtime (&now);
       if (! (lt
-             && lt->tm_year == tm.tm_year
-             && lt->tm_mon == tm.tm_mon
-             && lt->tm_mday == tm.tm_mday
-             && lt->tm_hour == tm.tm_hour
-             && lt->tm_min == tm.tm_min
-             && lt->tm_sec == tm.tm_sec
-             && lt->tm_yday == tm.tm_yday
-             && lt->tm_wday == tm.tm_wday
-             && ((lt->tm_isdst < 0 ? -1 : 0 < lt->tm_isdst)
-                  == (tm.tm_isdst < 0 ? -1 : 0 < tm.tm_isdst))))
-        return 0;
+	     && lt->tm_year == tm.tm_year
+	     && lt->tm_mon == tm.tm_mon
+	     && lt->tm_mday == tm.tm_mday
+	     && lt->tm_hour == tm.tm_hour
+	     && lt->tm_min == tm.tm_min
+	     && lt->tm_sec == tm.tm_sec
+	     && lt->tm_yday == tm.tm_yday
+	     && lt->tm_wday == tm.tm_wday
+	     && ((lt->tm_isdst < 0 ? -1 : 0 < lt->tm_isdst)
+		  == (tm.tm_isdst < 0 ? -1 : 0 < tm.tm_isdst))))
+	return 0;
     }
   return 1;
 }
@@ -159,95 +158,76 @@ year_2050_test ()
      to the correct answer that we can assume the discrepancy is
      due to leap seconds.  */
   return (t == (time_t) -1
-          || (0 < t && answer - 120 <= t && t <= answer + 120));
+	  || (0 < t && answer - 120 <= t && t <= answer + 120));
 }
 
 int
 main ()
 {
-  int result = 0;
   time_t t, delta;
   int i, j;
-  int time_t_signed_magnitude = (time_t) ~ (time_t) 0 < (time_t) -1;
-  int time_t_signed = ! ((time_t) 0 < (time_t) -1);
 
-#if HAVE_DECL_ALARM
   /* This test makes some buggy mktime implementations loop.
      Give up after 60 seconds; a mktime slower than that
      isn't worth using anyway.  */
-  signal (SIGALRM, SIG_DFL);
   alarm (60);
-#endif
 
-  time_t_max = (! time_t_signed
-                ? (time_t) -1
-                : ((((time_t) 1 << (sizeof (time_t) * CHAR_BIT - 2)) - 1)
-                   * 2 + 1));
-  time_t_min = (! time_t_signed
-                ? (time_t) 0
-                : time_t_signed_magnitude
-                ? ~ (time_t) 0
-                : ~ time_t_max);
+  for (;;)
+    {
+      t = (time_t_max << 1) + 1;
+      if (t <= time_t_max)
+	break;
+      time_t_max = t;
+    }
+  time_t_min = - ((time_t) ~ (time_t) 0 == (time_t) -1) - time_t_max;
 
   delta = time_t_max / 997; /* a suitable prime number */
   for (i = 0; i < N_STRINGS; i++)
     {
       if (tz_strings[i])
-        putenv (tz_strings[i]);
+	putenv (tz_strings[i]);
 
-      for (t = 0; t <= time_t_max - delta && (result & 1) == 0; t += delta)
-        if (! mktime_test (t))
-          result |= 1;
-      if ((result & 2) == 0
-          && ! (mktime_test ((time_t) 1)
-                && mktime_test ((time_t) (60 * 60))
-                && mktime_test ((time_t) (60 * 60 * 24))))
-        result |= 2;
+      for (t = 0; t <= time_t_max - delta; t += delta)
+	if (! mktime_test (t))
+	  return 1;
+      if (! (mktime_test ((time_t) 1)
+	     && mktime_test ((time_t) (60 * 60))
+	     && mktime_test ((time_t) (60 * 60 * 24))))
+	return 1;
 
-      for (j = 1; (result & 4) == 0; j <<= 1)
-        {
-          if (! bigtime_test (j))
-            result |= 4;
-          if (INT_MAX / 2 < j)
-            break;
-        }
-      if ((result & 8) == 0 && ! bigtime_test (INT_MAX))
-        result |= 8;
+      for (j = 1; ; j <<= 1)
+	if (! bigtime_test (j))
+	  return 1;
+	else if (INT_MAX / 2 < j)
+	  break;
+      if (! bigtime_test (INT_MAX))
+	return 1;
     }
-  if (! irix_6_4_bug ())
-    result |= 16;
-  if (! spring_forward_gap ())
-    result |= 32;
-  if (! year_2050_test ())
-    result |= 64;
-  return result;
+  return ! (irix_6_4_bug () && spring_forward_gap () && year_2050_test ());
 }]])],
-       [gl_cv_func_working_mktime=yes],
-       [gl_cv_func_working_mktime=no],
-       [gl_cv_func_working_mktime=no])
-    ])
+	       [ac_cv_func_working_mktime=yes],
+	       [ac_cv_func_working_mktime=no],
+	       [ac_cv_func_working_mktime=no])])
+if test $ac_cv_func_working_mktime = no; then
+  AC_LIBOBJ([mktime])
+fi
+])# AC_FUNC_MKTIME
 
-  if test $gl_cv_func_working_mktime = no; then
+AC_DEFUN([gl_FUNC_MKTIME],
+[
+  AC_REQUIRE([gl_HEADER_TIME_H_DEFAULTS])
+  AC_FUNC_MKTIME
+  dnl Note: AC_FUNC_MKTIME does AC_LIBOBJ([mktime]).
+  if test $ac_cv_func_working_mktime = no; then
     REPLACE_MKTIME=1
+    gl_PREREQ_MKTIME
   else
     REPLACE_MKTIME=0
   fi
 ])
 
-AC_DEFUN([gl_FUNC_MKTIME_INTERNAL], [
-  AC_REQUIRE([gl_FUNC_MKTIME])
-  if test $REPLACE_MKTIME = 0; then
-    dnl BeOS has __mktime_internal in libc, but other platforms don't.
-    AC_CHECK_FUNC([__mktime_internal],
-      [AC_DEFINE([mktime_internal], [__mktime_internal],
-         [Define to the real name of the mktime_internal function.])
-      ],
-      [dnl mktime works but it doesn't export __mktime_internal,
-       dnl so we need to substitute our own mktime implementation.
-       REPLACE_MKTIME=1
-      ])
-  fi
-])
-
 # Prerequisites of lib/mktime.c.
-AC_DEFUN([gl_PREREQ_MKTIME], [:])
+AC_DEFUN([gl_PREREQ_MKTIME],
+[
+  AC_REQUIRE([AC_C_INLINE])
+])

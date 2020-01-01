@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Test that directory streams leave standard fds alone.
-   Copyright (C) 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -23,6 +26,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 #include "unistd-safer.h"
@@ -32,13 +36,22 @@
    duplicate the original stderr.  */
 
 #define BACKUP_STDERR_FILENO 10
-#define ASSERT_STREAM myerr
-#include "macros.h"
-
 static FILE *myerr;
 
+#define ASSERT(expr) \
+  do                                                                         \
+    {                                                                        \
+      if (!(expr))                                                           \
+        {                                                                    \
+          fprintf (myerr, "%s:%d: assertion failed\n", __FILE__, __LINE__);  \
+          fflush (myerr);                                                    \
+          abort ();                                                          \
+        }                                                                    \
+    }                                                                        \
+  while (0)
+
 int
-main (void)
+main ()
 {
   int i;
   DIR *dp;
@@ -48,7 +61,7 @@ main (void)
      gnulib version of fdopendir is unable to guarantee that
      dirfd(fdopendir(fd))==fd, but we can at least guarantee that if
      they are not equal, the fd returned by dirfd is safe.  */
-#if HAVE_FDOPENDIR || GNULIB_TEST_FDOPENDIR
+#if HAVE_FDOPENDIR || GNULIB_FDOPENDIR
   int dfd;
 #endif
 
@@ -57,7 +70,7 @@ main (void)
       || (myerr = fdopen (BACKUP_STDERR_FILENO, "w")) == NULL)
     return 2;
 
-#if HAVE_FDOPENDIR || GNULIB_TEST_FDOPENDIR
+#if HAVE_FDOPENDIR || GNULIB_FDOPENDIR
   dfd = open (".", O_RDONLY);
   ASSERT (STDERR_FILENO < dfd);
 #endif
@@ -73,7 +86,7 @@ main (void)
       ASSERT (dirfd (dp) == -1 || STDERR_FILENO < dirfd (dp));
       ASSERT (closedir (dp) == 0);
 
-#if HAVE_FDOPENDIR || GNULIB_TEST_FDOPENDIR
+#if HAVE_FDOPENDIR || GNULIB_FDOPENDIR
       {
         int fd = dup_safer (dfd);
         ASSERT (STDERR_FILENO < fd);
@@ -88,7 +101,7 @@ main (void)
 #endif
     }
 
-#if HAVE_FDOPENDIR || GNULIB_TEST_FDOPENDIR
+#if HAVE_FDOPENDIR || GNULIB_FDOPENDIR
   ASSERT (close (dfd) == 0);
 #endif
 

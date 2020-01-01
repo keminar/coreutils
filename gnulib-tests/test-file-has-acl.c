@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Test for presence of ACL.
-   Copyright (C) 2008-2016 Free Software Foundation, Inc.
+   Copyright (C) 2008-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -27,7 +30,17 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include "macros.h"
+#define ASSERT(expr) \
+  do									     \
+    {									     \
+      if (!(expr))							     \
+        {								     \
+          fprintf (stderr, "%s:%d: assertion failed\n", __FILE__, __LINE__); \
+          fflush (stderr);						     \
+          abort ();							     \
+        }								     \
+    }									     \
+  while (0)
 
 int
 main (int argc, char *argv[])
@@ -49,11 +62,8 @@ main (int argc, char *argv[])
 #if HAVE_DECL_ALARM
   /* Declare failure if test takes too long, by using default abort
      caused by SIGALRM.  */
-  {
-    int alarm_value = 5;
-    signal (SIGALRM, SIG_DFL);
-    alarm (alarm_value);
-  }
+  signal (SIGALRM, SIG_DFL);
+  alarm (5);
 #endif
 
 #if USE_ACL
@@ -61,8 +71,8 @@ main (int argc, char *argv[])
     int ret = file_has_acl (file, &statbuf);
     if (ret < 0)
       {
-        fprintf (stderr, "could not access the ACL of file \"%s\"\n", file);
-        exit (EXIT_FAILURE);
+	fprintf (stderr, "could not access the ACL of file \"%s\"\n", file);
+	exit (EXIT_FAILURE);
       }
     printf ("%s\n", ret ? "yes" : "no");
   }

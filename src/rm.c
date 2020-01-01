@@ -1,5 +1,5 @@
-/* 'rm' file deletion utility for GNU.
-   Copyright (C) 1988-2016 Free Software Foundation, Inc.
+/* `rm' file deletion utility for GNU.
+   Copyright (C) 88, 90, 91, 1994-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -27,12 +27,14 @@
 #include "system.h"
 #include "argmatch.h"
 #include "error.h"
+#include "quote.h"
+#include "quotearg.h"
 #include "remove.h"
 #include "root-dev-ino.h"
 #include "yesno.h"
 #include "priv-set.h"
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "rm"
 
 #define AUTHORS \
@@ -61,6 +63,7 @@ enum interactive_type
 
 static struct option const long_opts[] =
 {
+  {"directory", no_argument, NULL, 'd'},
   {"force", no_argument, NULL, 'f'},
   {"interactive", optional_argument, NULL, INTERACTIVE_OPTION},
 
@@ -75,7 +78,6 @@ static struct option const long_opts[] =
   {"-presume-input-tty", no_argument, NULL, PRESUME_INPUT_TTY_OPTION},
 
   {"recursive", no_argument, NULL, 'r'},
-  {"dir", no_argument, NULL, 'd'},
   {"verbose", no_argument, NULL, 'v'},
   {GETOPT_HELP_OPTION_DECL},
   {GETOPT_VERSION_OPTION_DECL},
@@ -97,7 +99,7 @@ static enum interactive_type const interactive_types[] =
 ARGMATCH_VERIFY (interactive_args, interactive_types);
 
 /* Advise the user about invalid usages like "rm -foo" if the file
-   "-foo" exists, assuming ARGC and ARGV are as with 'main'.  */
+   "-foo" exists, assuming ARGC and ARGV are as with `main'.  */
 
 static void
 diagnose_leading_hyphen (int argc, char **argv)
@@ -114,10 +116,10 @@ diagnose_leading_hyphen (int argc, char **argv)
       if (arg[0] == '-' && arg[1] && lstat (arg, &st) == 0)
         {
           fprintf (stderr,
-                   _("Try '%s ./%s' to remove the file %s.\n"),
+                   _("Try `%s ./%s' to remove the file %s.\n"),
                    argv[0],
-                   quotearg_n_style (1, shell_escape_quoting_style, arg),
-                   quoteaf (arg));
+                   quotearg_n_style (1, shell_quoting_style, arg),
+                   quote (arg));
           break;
         }
     }
@@ -127,22 +129,23 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
-      printf (_("Usage: %s [OPTION]... [FILE]...\n"), program_name);
+      printf (_("Usage: %s [OPTION]... FILE...\n"), program_name);
       fputs (_("\
 Remove (unlink) the FILE(s).\n\
 \n\
-  -f, --force           ignore nonexistent files and arguments, never prompt\n\
+  -f, --force           ignore nonexistent files, never prompt\n\
   -i                    prompt before every removal\n\
 "), stdout);
       fputs (_("\
   -I                    prompt once before removing more than three files, or\n\
-                          when removing recursively; less intrusive than -i,\n\
+                          when removing recursively.  Less intrusive than -i,\n\
                           while still giving protection against most mistakes\n\
       --interactive[=WHEN]  prompt according to WHEN: never, once (-I), or\n\
-                          always (-i); without WHEN, prompt always\n\
+                          always (-i).  Without WHEN, prompt always\n\
 "), stdout);
       fputs (_("\
       --one-file-system  when removing a hierarchy recursively, skip any\n\
@@ -150,10 +153,9 @@ Remove (unlink) the FILE(s).\n\
                           that of the corresponding command line argument\n\
 "), stdout);
       fputs (_("\
-      --no-preserve-root  do not treat '/' specially\n\
-      --preserve-root   do not remove '/' (default)\n\
+      --no-preserve-root  do not treat `/' specially\n\
+      --preserve-root   do not remove `/' (default)\n\
   -r, -R, --recursive   remove directories and their contents recursively\n\
-  -d, --dir             remove empty directories\n\
   -v, --verbose         explain what is being done\n\
 "), stdout);
       fputs (HELP_OPTION_DESCRIPTION, stdout);
@@ -165,7 +167,7 @@ option to remove each listed directory, too, along with all of its contents.\n\
 "), stdout);
       printf (_("\
 \n\
-To remove a file whose name starts with a '-', for example '-foo',\n\
+To remove a file whose name starts with a `-', for example `-foo',\n\
 use one of these commands:\n\
   %s -- -foo\n\
 \n\
@@ -174,11 +176,11 @@ use one of these commands:\n\
               program_name, program_name);
       fputs (_("\
 \n\
-Note that if you use rm to remove a file, it might be possible to recover\n\
-some of its contents, given sufficient expertise and/or time.  For greater\n\
-assurance that the contents are truly unrecoverable, consider using shred.\n\
+Note that if you use rm to remove a file, it is usually possible to recover\n\
+the contents of that file.  If you want more assurance that the contents are\n\
+truly unrecoverable, consider using shred.\n\
 "), stdout);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
@@ -189,13 +191,12 @@ rm_option_init (struct rm_options *x)
   x->ignore_missing_files = false;
   x->interactive = RMI_SOMETIMES;
   x->one_file_system = false;
-  x->remove_empty_directories = false;
   x->recursive = false;
   x->root_dev_ino = NULL;
   x->stdin_tty = isatty (STDIN_FILENO);
   x->verbose = false;
 
-  /* Since this program exits immediately after calling 'rm', rm need not
+  /* Since this program exits immediately after calling `rm', rm need not
      expend unnecessary effort to preserve the initial working directory.  */
   x->require_restore_cwd = false;
 }
@@ -226,7 +227,10 @@ main (int argc, char **argv)
       switch (c)
         {
         case 'd':
-          x.remove_empty_directories = true;
+          /* Ignore this option, for backward compatibility with
+             coreutils 5.92.  FIXME: Some time after 2005, change this
+             to report an error (or perhaps behave like FreeBSD does)
+             instead of ignoring the option.  */
           break;
 
         case 'f':
@@ -242,7 +246,7 @@ main (int argc, char **argv)
           break;
 
         case 'I':
-          x.interactive = RMI_SOMETIMES;
+          x.interactive = RMI_NEVER;
           x.ignore_missing_files = false;
           prompt_once = true;
           break;
@@ -313,7 +317,7 @@ main (int argc, char **argv)
   if (argc <= optind)
     {
       if (x.ignore_missing_files)
-        return EXIT_SUCCESS;
+        exit (EXIT_SUCCESS);
       else
         {
           error (0, 0, _("missing operand"));
@@ -327,28 +331,24 @@ main (int argc, char **argv)
       x.root_dev_ino = get_root_dev_ino (&dev_ino_buf);
       if (x.root_dev_ino == NULL)
         error (EXIT_FAILURE, errno, _("failed to get attributes of %s"),
-               quoteaf ("/"));
+               quote ("/"));
     }
 
-  uintmax_t n_files = argc - optind;
+  size_t n_files = argc - optind;
   char **file =  argv + optind;
 
   if (prompt_once && (x.recursive || 3 < n_files))
     {
       fprintf (stderr,
                (x.recursive
-                ? ngettext ("%s: remove %"PRIuMAX" argument recursively? ",
-                            "%s: remove %"PRIuMAX" arguments recursively? ",
-                            select_plural (n_files))
-                : ngettext ("%s: remove %"PRIuMAX" argument? ",
-                            "%s: remove %"PRIuMAX" arguments? ",
-                            select_plural (n_files))),
-               program_name, n_files);
+                ? _("%s: remove all arguments recursively? ")
+                : _("%s: remove all arguments? ")),
+               program_name);
       if (!yesno ())
-        return EXIT_SUCCESS;
+        exit (EXIT_SUCCESS);
     }
 
   enum RM_status status = rm (file, &x);
   assert (VALID_STATUS (status));
-  return status == RM_ERROR ? EXIT_FAILURE : EXIT_SUCCESS;
+  exit (status == RM_ERROR ? EXIT_FAILURE : EXIT_SUCCESS);
 }

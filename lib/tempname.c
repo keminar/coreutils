@@ -1,6 +1,8 @@
 /* tempname.c - generate the name of a temporary file.
 
-   Copyright (C) 1991-2003, 2005-2007, 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999,
+   2000, 2001, 2002, 2003, 2005, 2006, 2007, 2009 Free Software Foundation,
+   Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -39,13 +41,9 @@
 # define TMP_MAX 238328
 #endif
 #ifndef __GT_FILE
-# define __GT_FILE      0
-# define __GT_DIR       1
-# define __GT_NOCREATE  2
-#endif
-#if !_LIBC && (GT_FILE != __GT_FILE || GT_DIR != __GT_DIR       \
-               || GT_NOCREATE != __GT_NOCREATE)
-# error report this to bug-gnulib@gnu.org
+# define __GT_FILE	1
+# define __GT_DIR	2
+# define __GT_NOCREATE	3
 #endif
 
 #include <stdbool.h>
@@ -64,42 +62,17 @@
 # define struct_stat64 struct stat64
 #else
 # define struct_stat64 struct stat
-# define __try_tempname try_tempname
+# define __open open
 # define __gen_tempname gen_tempname
 # define __getpid getpid
 # define __gettimeofday gettimeofday
 # define __mkdir mkdir
-# define __open open
 # define __lxstat64(version, file, buf) lstat (file, buf)
-# define __secure_getenv secure_getenv
+# define __xstat64(version, file, buf) stat (file, buf)
 #endif
 
-#ifdef _LIBC
-# include <hp-timing.h>
-# if HP_TIMING_AVAIL
-#  define RANDOM_BITS(Var) \
-  if (__builtin_expect (value == UINT64_C (0), 0))                            \
-    {                                                                         \
-      /* If this is the first time this function is used initialize           \
-         the variable we accumulate the value in to some somewhat             \
-         random value.  If we'd not do this programs at startup time          \
-         might have a reduced set of possible names, at least on slow         \
-         machines.  */                                                        \
-      struct timeval tv;                                                      \
-      __gettimeofday (&tv, NULL);                                             \
-      value = ((uint64_t) tv.tv_usec << 16) ^ tv.tv_sec;                      \
-    }                                                                         \
-  HP_TIMING_NOW (Var)
-# endif
-#endif
-
-/* Use the widest available unsigned type if uint64_t is not
-   available.  The algorithm below extracts a number less than 62**6
-   (approximately 2**35.725) from uint64_t, so ancient hosts where
-   uintmax_t is only 32 bits lose about 3.725 bits of randomness,
-   which is better than not having mkstemp at all.  */
-#if !defined UINT64_MAX && !defined uint64_t
-# define uint64_t uintmax_t
+#if ! (HAVE___SECURE_GETENV || _LIBC)
+# define __secure_getenv getenv
 #endif
 
 #if _LIBC
@@ -161,7 +134,7 @@ __path_search (char *tmpl, size_t tmpl_len, const char *dir, const char *pfx,
 
   dlen = strlen (dir);
   while (dlen > 1 && dir[dlen - 1] == '/')
-    dlen--;                     /* remove trailing slashes */
+    dlen--;			/* remove trailing slashes */
 
   /* check we have room for "${dir}/${pfx}XXXXXX\0" */
   if (tmpl_len < dlen + 1 + plen + 6 + 1)
@@ -175,34 +148,46 @@ __path_search (char *tmpl, size_t tmpl_len, const char *dir, const char *pfx,
 }
 #endif /* _LIBC */
 
-static inline bool _GL_ATTRIBUTE_PURE
+static inline bool
 check_x_suffix (char const *s, size_t len)
 {
-  return len <= strspn (s, "X");
+  return strspn (s, "X") == len;
 }
 
 /* These are the characters used in temporary file names.  */
 static const char letters[] =
 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
+/* Generate a temporary file name based on TMPL.  TMPL must end in a
+   a sequence of at least X_SUFFIX_LEN "X"s.  The name constructed
+   does not exist at the time of the call to __gen_tempname.  TMPL is
+   overwritten with the result.
+
+   KIND may be one of:
+   __GT_NOCREATE:	simply verify that the name does not exist
+                        at the time of the call.
+   __GT_FILE:		create the file using open(O_CREAT|O_EXCL)
+                        and return a read-write fd.  The file is mode 0600.
+   __GT_DIR:		create a directory, which will be mode 0700.
+
+   We use a clever algorithm to get hard-to-predict names. */
 int
-try_tempname_len (char *tmpl, int suffixlen, void *args,
-                  int (*tryfunc) (char *, void *), size_t x_suffix_len)
+gen_tempname_len (char *tmpl, int flags, int kind, size_t x_suffix_len)
 {
   size_t len;
   char *XXXXXX;
   unsigned int count;
   int fd = -1;
   int save_errno = errno;
+  struct_stat64 st;
   struct randint_source *rand_src;
 
   /* A lower bound on the number of temporary files to attempt to
      generate.  The maximum total number of temporary file names that
      can exist for a given template is 62**6.  It should never be
-     necessary to try all of these combinations.  Instead if a reasonable
+     necessary to try all these combinations.  Instead if a reasonable
      number of names is tried (we define reasonable as 62**3) fail to
-     give the system administrator the chance to remove the problems.
-     This value requires that X_SUFFIX_LEN be at least 3.  */
+     give the system administrator the chance to remove the problems.  */
 #define ATTEMPTS_MIN (62 * 62 * 62)
 
   /* The number of times to attempt to generate a temporary file.  To
@@ -214,30 +199,67 @@ try_tempname_len (char *tmpl, int suffixlen, void *args,
 #endif
 
   len = strlen (tmpl);
-  if (len < x_suffix_len + suffixlen
-      || ! check_x_suffix (&tmpl[len - x_suffix_len - suffixlen],
-                           x_suffix_len))
+  if (len < x_suffix_len || ! check_x_suffix (&tmpl[len - x_suffix_len],
+                                              x_suffix_len))
     {
       __set_errno (EINVAL);
       return -1;
     }
 
-  /* This is where the Xs start.  */
-  XXXXXX = &tmpl[len - x_suffix_len - suffixlen];
-
-  /* Get some more or less random data.  */
-  rand_src = randint_all_new (NULL, x_suffix_len);
+  rand_src = randint_all_new (NULL, 8);
   if (! rand_src)
     return -1;
+
+  /* This is where the Xs start.  */
+  XXXXXX = &tmpl[len - x_suffix_len];
 
   for (count = 0; count < attempts; ++count)
     {
       size_t i;
 
       for (i = 0; i < x_suffix_len; i++)
-        XXXXXX[i] = letters[randint_genmax (rand_src, sizeof letters - 2)];
+        {
+          XXXXXX[i] = letters[randint_genmax (rand_src, sizeof letters - 2)];
+        }
 
-      fd = tryfunc (tmpl, args);
+      switch (kind)
+        {
+        case __GT_FILE:
+          fd = __open (tmpl,
+                       (flags & ~0777) | O_RDWR | O_CREAT | O_EXCL,
+                       S_IRUSR | S_IWUSR);
+          break;
+
+        case __GT_DIR:
+          fd = __mkdir (tmpl, S_IRUSR | S_IWUSR | S_IXUSR);
+          break;
+
+        case __GT_NOCREATE:
+          /* This case is backward from the other three.  This function
+             succeeds if __xstat fails because the name does not exist.
+             Note the continue to bypass the common logic at the bottom
+             of the loop.  */
+          if (__lxstat64 (_STAT_VER, tmpl, &st) < 0)
+            {
+              if (errno == ENOENT)
+                {
+                  __set_errno (save_errno);
+                  fd = 0;
+                  goto done;
+                }
+              else
+                {
+                  /* Give up now. */
+                  fd = -1;
+                  goto done;
+                }
+            }
+          continue;
+
+        default:
+          assert (! "invalid KIND in __gen_tempname");
+        }
+
       if (fd >= 0)
         {
           __set_errno (save_errno);
@@ -265,81 +287,8 @@ try_tempname_len (char *tmpl, int suffixlen, void *args,
   return fd;
 }
 
-static int
-try_file (char *tmpl, void *flags)
-{
-  int *openflags = flags;
-  return __open (tmpl,
-                 (*openflags & ~O_ACCMODE)
-                 | O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
-}
-
-static int
-try_dir (char *tmpl, void *flags _GL_UNUSED)
-{
-  return __mkdir (tmpl, S_IRUSR | S_IWUSR | S_IXUSR);
-}
-
-static int
-try_nocreate (char *tmpl, void *flags _GL_UNUSED)
-{
-  struct_stat64 st;
-
-  if (__lxstat64 (_STAT_VER, tmpl, &st) == 0)
-    __set_errno (EEXIST);
-  return errno == ENOENT ? 0 : -1;
-}
-
-/* Generate a temporary file name based on TMPL.  TMPL must match the
-   rules for mk[s]temp (i.e., end in at least X_SUFFIX_LEN "X"s,
-   possibly with a suffix).
-   The name constructed does not exist at the time of the call to
-   this function.  TMPL is overwritten with the result.
-
-   KIND may be one of:
-   __GT_NOCREATE:       simply verify that the name does not exist
-                        at the time of the call.
-   __GT_FILE:           create the file using open(O_CREAT|O_EXCL)
-                        and return a read-write fd.  The file is mode 0600.
-   __GT_DIR:            create a directory, which will be mode 0700.
-
-   We use a clever algorithm to get hard-to-predict names. */
 int
-gen_tempname_len (char *tmpl, int suffixlen, int flags, int kind,
-                  size_t x_suffix_len)
+__gen_tempname (char *tmpl, int flags, int kind)
 {
-  int (*tryfunc) (char *, void *);
-
-  switch (kind)
-    {
-    case __GT_FILE:
-      tryfunc = try_file;
-      break;
-
-    case __GT_DIR:
-      tryfunc = try_dir;
-      break;
-
-    case __GT_NOCREATE:
-      tryfunc = try_nocreate;
-      break;
-
-    default:
-      assert (! "invalid KIND in __gen_tempname");
-      abort ();
-    }
-  return try_tempname_len (tmpl, suffixlen, &flags, tryfunc, x_suffix_len);
-}
-
-int
-__gen_tempname (char *tmpl, int suffixlen, int flags, int kind)
-{
-  return gen_tempname_len (tmpl, suffixlen, flags, kind, 6);
-}
-
-int
-__try_tempname (char *tmpl, int suffixlen, void *args,
-                int (*tryfunc) (char *, void *))
-{
-  return try_tempname_len (tmpl, suffixlen, args, tryfunc, 6);
+  return gen_tempname_len (tmpl, flags, kind, 6);
 }

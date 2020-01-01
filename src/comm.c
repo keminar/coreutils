@@ -1,5 +1,5 @@
 /* comm -- compare two sorted files line by line.
-   Copyright (C) 1986-2016 Free Software Foundation, Inc.
+   Copyright (C) 86, 90, 91, 1995-2005, 2008-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -15,7 +15,7 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 /* Written by Richard Stallman and David MacKenzie. */
-
+
 #include <config.h>
 
 #include <getopt.h>
@@ -23,14 +23,13 @@
 #include "system.h"
 #include "linebuffer.h"
 #include "error.h"
-#include "fadvise.h"
 #include "hard-locale.h"
 #include "quote.h"
 #include "stdio--.h"
 #include "memcmp2.h"
 #include "xmemcoll.h"
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "comm"
 
 #define AUTHORS \
@@ -59,9 +58,6 @@ static bool seen_unpairable;
 /* If nonzero, we have warned about disorder in that file. */
 static bool issued_disorder_warning[2];
 
-/* line delimiter.  */
-static unsigned char delim = '\n';
-
 /* If nonzero, check that the input is correctly ordered. */
 static enum
   {
@@ -71,9 +67,9 @@ static enum
   } check_input_order;
 
 /* Output columns will be delimited with this string, which may be set
-   on the command-line with --output-delimiter=STR.  */
-static char const *col_sep = "\t";
-static size_t col_sep_len = 0;
+   on the command-line with --output-delimiter=STR.  The default is a
+   single TAB character. */
+static char const *delimiter;
 
 /* For long options that have no equivalent short option, use a
    non-character as a pseudo short option, starting with CHAR_MAX + 1.  */
@@ -89,18 +85,19 @@ static struct option const long_options[] =
   {"check-order", no_argument, NULL, CHECK_ORDER_OPTION},
   {"nocheck-order", no_argument, NULL, NOCHECK_ORDER_OPTION},
   {"output-delimiter", required_argument, NULL, OUTPUT_DELIMITER_OPTION},
-  {"zero-terminated", no_argument, NULL, 'z'},
   {GETOPT_HELP_OPTION_DECL},
   {GETOPT_VERSION_OPTION_DECL},
   {NULL, 0, NULL, 0}
 };
 
+
 
 void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("\
@@ -109,10 +106,6 @@ Usage: %s [OPTION]... FILE1 FILE2\n\
               program_name);
       fputs (_("\
 Compare sorted files FILE1 and FILE2 line by line.\n\
-"), stdout);
-      fputs (_("\
-\n\
-When FILE1 or FILE2 (not both) is -, read standard input.\n\
 "), stdout);
       fputs (_("\
 \n\
@@ -135,23 +128,20 @@ and column three contains lines common to both files.\n\
       fputs (_("\
   --output-delimiter=STR  separate columns with STR\n\
 "), stdout);
-      fputs (_("\
-  -z, --zero-terminated    line delimiter is NUL, not newline\n\
-"), stdout);
       fputs (HELP_OPTION_DESCRIPTION, stdout);
       fputs (VERSION_OPTION_DESCRIPTION, stdout);
       fputs (_("\
 \n\
-Note, comparisons honor the rules specified by 'LC_COLLATE'.\n\
+Note, comparisons honor the rules specified by `LC_COLLATE'.\n\
 "), stdout);
       printf (_("\
 \n\
 Examples:\n\
   %s -12 file1 file2  Print only lines present in both file1 and file2.\n\
-  %s -3 file1 file2  Print lines in file1 not in file2, and vice versa.\n\
+  %s -3  file1 file2  Print lines in file1 not in file2, and vice versa.\n\
 "),
               program_name, program_name);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
@@ -174,17 +164,20 @@ writeline (struct linebuffer const *line, FILE *stream, int class)
     case 2:
       if (!only_file_2)
         return;
+      /* Print a delimiter if we are printing lines from file 1.  */
       if (only_file_1)
-        fwrite (col_sep, 1, col_sep_len, stream);
+        fputs (delimiter, stream);
       break;
 
     case 3:
       if (!both)
         return;
+      /* Print a delimiter if we are printing lines from file 1.  */
       if (only_file_1)
-        fwrite (col_sep, 1, col_sep_len, stream);
+        fputs (delimiter, stream);
+      /* Print a delimiter if we are printing lines from file 2.  */
       if (only_file_2)
-        fwrite (col_sep, 1, col_sep_len, stream);
+        fputs (delimiter, stream);
       break;
     }
 
@@ -200,7 +193,7 @@ writeline (struct linebuffer const *line, FILE *stream, int class)
 
    A message is printed at most once per input file.
 
-   This function was copied (nearly) verbatim from 'src/join.c'. */
+   This funtion was copied (nearly) verbatim from `src/join.c'. */
 
 static void
 check_order (struct linebuffer const *prev,
@@ -277,14 +270,11 @@ compare_files (char **infiles)
       alt[i][2] = 0;
       streams[i] = (STREQ (infiles[i], "-") ? stdin : fopen (infiles[i], "r"));
       if (!streams[i])
-        error (EXIT_FAILURE, errno, "%s", quotef (infiles[i]));
+        error (EXIT_FAILURE, errno, "%s", infiles[i]);
 
-      fadvise (streams[i], FADVISE_SEQUENTIAL);
-
-      thisline[i] = readlinebuffer_delim (all_line[i][alt[i][0]], streams[i],
-                                          delim);
+      thisline[i] = readlinebuffer (all_line[i][alt[i][0]], streams[i]);
       if (ferror (streams[i]))
-        error (EXIT_FAILURE, errno, "%s", quotef (infiles[i]));
+        error (EXIT_FAILURE, errno, "%s", infiles[i]);
     }
 
   while (thisline[0] || thisline[1])
@@ -341,8 +331,7 @@ compare_files (char **infiles)
             alt[i][1] = alt[i][0];
             alt[i][0] = (alt[i][0] + 1) & 0x03;
 
-            thisline[i] = readlinebuffer_delim (all_line[i][alt[i][0]],
-                                                streams[i], delim);
+            thisline[i] = readlinebuffer (all_line[i][alt[i][0]], streams[i]);
 
             if (thisline[i])
               check_order (all_line[i][alt[i][1]], thisline[i], i + 1);
@@ -355,7 +344,7 @@ compare_files (char **infiles)
                            all_line[i][alt[i][1]], i + 1);
 
             if (ferror (streams[i]))
-              error (EXIT_FAILURE, errno, "%s", quotef (infiles[i]));
+              error (EXIT_FAILURE, errno, "%s", infiles[i]);
 
             fill_up[i] = false;
           }
@@ -363,7 +352,7 @@ compare_files (char **infiles)
 
   for (i = 0; i < 2; i++)
     if (fclose (streams[i]) != 0)
-      error (EXIT_FAILURE, errno, "%s", quotef (infiles[i]));
+      error (EXIT_FAILURE, errno, "%s", infiles[i]);
 }
 
 int
@@ -388,7 +377,7 @@ main (int argc, char **argv)
   issued_disorder_warning[0] = issued_disorder_warning[1] = false;
   check_input_order = CHECK_ORDER_DEFAULT;
 
-  while ((c = getopt_long (argc, argv, "123z", long_options, NULL)) != -1)
+  while ((c = getopt_long (argc, argv, "123", long_options, NULL)) != -1)
     switch (c)
       {
       case '1':
@@ -403,10 +392,6 @@ main (int argc, char **argv)
         both = false;
         break;
 
-      case 'z':
-        delim = '\0';
-        break;
-
       case NOCHECK_ORDER_OPTION:
         check_input_order = CHECK_ORDER_DISABLED;
         break;
@@ -416,10 +401,14 @@ main (int argc, char **argv)
         break;
 
       case OUTPUT_DELIMITER_OPTION:
-        if (col_sep_len && !STREQ (col_sep, optarg))
-          error (EXIT_FAILURE, 0, _("multiple output delimiters specified"));
-        col_sep = optarg;
-        col_sep_len = *optarg ? strlen (optarg) : 1;
+        if (delimiter && !STREQ (delimiter, optarg))
+          error (EXIT_FAILURE, 0, _("multiple delimiters specified"));
+        delimiter = optarg;
+        if (!*delimiter)
+          {
+            error (EXIT_FAILURE, 0, _("empty %s not allowed"),
+                   quote ("--output-delimiter"));
+          }
         break;
 
       case_GETOPT_HELP_CHAR;
@@ -429,9 +418,6 @@ main (int argc, char **argv)
       default:
         usage (EXIT_FAILURE);
       }
-
-  if (! col_sep_len)
-    col_sep_len = 1;
 
   if (argc - optind < 2)
     {
@@ -448,10 +434,14 @@ main (int argc, char **argv)
       usage (EXIT_FAILURE);
     }
 
+  /* The default delimiter is a TAB. */
+  if (!delimiter)
+    delimiter = "\t";
+
   compare_files (argv + optind);
 
   if (issued_disorder_warning[0] || issued_disorder_warning[1])
-    return EXIT_FAILURE;
+    exit (EXIT_FAILURE);
   else
-    return EXIT_SUCCESS;
+    exit (EXIT_SUCCESS);
 }

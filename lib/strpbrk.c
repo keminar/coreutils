@@ -1,4 +1,7 @@
-/* Copyright (C) 1991, 1994, 2000, 2002-2003, 2006, 2009-2016 Free Software
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
+/* Copyright (C) 1991, 1994, 2000, 2002-2003, 2006 Free Software
    Foundation, Inc.
 
    NOTE: The canonical source of this file is maintained with the GNU C Library.
@@ -15,7 +18,8 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program; if not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software Foundation,
+   Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.  */
 
 #include <config.h>
 
@@ -32,8 +36,8 @@ strpbrk (const char *s, const char *accept)
     {
       const char *a = accept;
       while (*a != '\0')
-        if (*a++ == *s)
-          return (char *) s;
+	if (*a++ == *s)
+	  return (char *) s;
       ++s;
     }
 

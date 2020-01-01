@@ -1,6 +1,6 @@
 /* sig2str.c -- convert between signal names and numbers
 
-   Copyright (C) 2002, 2004, 2006, 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2002, 2004, 2006 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -41,7 +41,7 @@
 static struct numname { int num; char const name[8]; } numname_table[] =
   {
     /* Signals required by POSIX 1003.1-2001 base, listed in
-       traditional numeric order where possible.  */
+       traditional numeric order.  */
 #ifdef SIGHUP
     NUMNAME (HUP),
 #endif
@@ -66,13 +66,11 @@ static struct numname { int num; char const name[8]; } numname_table[] =
 #ifdef SIGKILL
     NUMNAME (KILL),
 #endif
-#ifdef SIGSEGV
-    NUMNAME (SEGV),
-#endif
-    /* On Haiku, SIGSEGV == SIGBUS, but we prefer SIGSEGV to match
-       strsignal.c output, so SIGBUS must be listed second.  */
 #ifdef SIGBUS
     NUMNAME (BUS),
+#endif
+#ifdef SIGSEGV
+    NUMNAME (SEGV),
 #endif
 #ifdef SIGPIPE
     NUMNAME (PIPE),
@@ -133,7 +131,7 @@ static struct numname { int num; char const name[8]; } numname_table[] =
 
     /* Unix Version 7.  */
 #ifdef SIGIOT
-    NUMNAME (IOT),      /* Older name for ABRT.  */
+    NUMNAME (IOT),	/* Older name for ABRT.  */
 #endif
 #ifdef SIGEMT
     NUMNAME (EMT),
@@ -217,16 +215,16 @@ static struct numname { int num; char const name[8]; } numname_table[] =
 
     /* Older AIX versions.  */
 #ifdef SIGALRM1
-    NUMNAME (ALRM1),    /* unknown; taken from Bash 2.05 */
+    NUMNAME (ALRM1),	/* unknown; taken from Bash 2.05 */
 #endif
 #ifdef SIGKAP
-    NUMNAME (KAP),      /* Older name for SIGGRANT.  */
+    NUMNAME (KAP),	/* Older name for SIGGRANT.  */
 #endif
 #ifdef SIGVIRT
-    NUMNAME (VIRT),     /* unknown; taken from Bash 2.05 */
+    NUMNAME (VIRT),	/* unknown; taken from Bash 2.05 */
 #endif
 #ifdef SIGWINDOW
-    NUMNAME (WINDOW),   /* Older name for SIGWINCH.  */
+    NUMNAME (WINDOW),	/* Older name for SIGWINCH.  */
 #endif
 
     /* BeOS */
@@ -251,7 +249,7 @@ static struct numname { int num; char const name[8]; } numname_table[] =
    - It's typically faster.
    POSIX says that only '0' through '9' are digits.  Prefer ISDIGIT to
    isdigit unless it's important to use the locale's definition
-   of "digit" even when the host does not conform to POSIX.  */
+   of `digit' even when the host does not conform to POSIX.  */
 #define ISDIGIT(c) ((unsigned int) (c) - '0' <= 9)
 
 /* Convert the signal name SIGNAME to a signal number.  Return the
@@ -265,32 +263,32 @@ str2signum (char const *signame)
       char *endp;
       long int n = strtol (signame, &endp, 10);
       if (! *endp && n <= SIGNUM_BOUND)
-        return n;
+	return n;
     }
   else
     {
       unsigned int i;
       for (i = 0; i < NUMNAME_ENTRIES; i++)
-        if (strcmp (numname_table[i].name, signame) == 0)
-          return numname_table[i].num;
+	if (strcmp (numname_table[i].name, signame) == 0)
+	  return numname_table[i].num;
 
       {
-        char *endp;
-        int rtmin = SIGRTMIN;
-        int rtmax = SIGRTMAX;
+	char *endp;
+	int rtmin = SIGRTMIN;
+	int rtmax = SIGRTMAX;
 
-        if (0 < rtmin && strncmp (signame, "RTMIN", 5) == 0)
-          {
-            long int n = strtol (signame + 5, &endp, 10);
-            if (! *endp && 0 <= n && n <= rtmax - rtmin)
-              return rtmin + n;
-          }
-        else if (0 < rtmax && strncmp (signame, "RTMAX", 5) == 0)
-          {
-            long int n = strtol (signame + 5, &endp, 10);
-            if (! *endp && rtmin - rtmax <= n && n <= 0)
-              return rtmax + n;
-          }
+	if (0 < rtmin && strncmp (signame, "RTMIN", 5) == 0)
+	  {
+	    long int n = strtol (signame + 5, &endp, 10);
+	    if (! *endp && 0 <= n && n <= rtmax - rtmin)
+	      return rtmin + n;
+	  }
+	else if (0 < rtmax && strncmp (signame, "RTMAX", 5) == 0)
+	  {
+	    long int n = strtol (signame + 5, &endp, 10);
+	    if (! *endp && rtmin - rtmax <= n && n <= 0)
+	      return rtmax + n;
+	  }
       }
     }
 
@@ -318,32 +316,28 @@ sig2str (int signum, char *signame)
   for (i = 0; i < NUMNAME_ENTRIES; i++)
     if (numname_table[i].num == signum)
       {
-        strcpy (signame, numname_table[i].name);
-        return 0;
+	strcpy (signame, numname_table[i].name);
+	return 0;
       }
 
   {
     int rtmin = SIGRTMIN;
     int rtmax = SIGRTMAX;
-    int base, delta;
 
     if (! (rtmin <= signum && signum <= rtmax))
       return -1;
 
     if (signum <= rtmin + (rtmax - rtmin) / 2)
       {
-        strcpy (signame, "RTMIN");
-        base = rtmin;
+	int delta = signum - rtmin;
+	sprintf (signame, delta ? "RTMIN+%d" : "RTMIN", delta);
       }
     else
       {
-        strcpy (signame, "RTMAX");
-        base = rtmax;
+	int delta = rtmax - signum;
+	sprintf (signame, delta ? "RTMAX-%d" : "RTMAX", delta);
       }
 
-    delta = signum - base;
-    if (delta != 0)
-      sprintf (signame + 5, "%+d", delta);
     return 0;
   }
 }

@@ -1,6 +1,6 @@
 /* calloc() function that is glibc compatible.
    This wrapper function is required at least on Tru64 UNIX 5.1 and mingw.
-   Copyright (C) 2004-2007, 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2004, 2005, 2006, 2007 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -20,11 +20,8 @@
 #include <config.h>
 /* Only the AC_FUNC_CALLOC macro defines 'calloc' already in config.h.  */
 #ifdef calloc
-# define NEED_CALLOC_GNU 1
+# define NEED_CALLOC_GNU
 # undef calloc
-/* Whereas the gnulib module 'calloc-gnu' defines HAVE_CALLOC_GNU.  */
-#elif GNULIB_CALLOC_GNU && !HAVE_CALLOC_GNU
-# define NEED_CALLOC_GNU 1
 #endif
 
 /* Specification.  */
@@ -43,7 +40,7 @@ rpl_calloc (size_t n, size_t s)
 {
   void *result;
 
-#if NEED_CALLOC_GNU
+#ifdef NEED_CALLOC_GNU
   if (n == 0 || s == 0)
     {
       n = 1;
@@ -52,13 +49,13 @@ rpl_calloc (size_t n, size_t s)
   else
     {
       /* Defend against buggy calloc implementations that mishandle
-         size_t overflow.  */
+	 size_t overflow.  */
       size_t bytes = n * s;
       if (bytes / s != n)
-        {
-          errno = ENOMEM;
-          return NULL;
-        }
+	{
+	  errno = ENOMEM;
+	  return NULL;
+	}
     }
 #endif
 

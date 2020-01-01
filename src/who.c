@@ -1,5 +1,5 @@
 /* GNU's who.
-   Copyright (C) 1992-2016 Free Software Foundation, Inc.
+   Copyright (C) 1992-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -28,8 +28,6 @@
 #include <stdio.h>
 
 #include <sys/types.h>
-#include <sys/socket.h>
-#include <netdb.h>
 #include "system.h"
 
 #include "c-ctype.h"
@@ -39,17 +37,17 @@
 #include "hard-locale.h"
 #include "quote.h"
 
-#ifdef TTY_GROUP_NAME
-# include <grp.h>
-#endif
-
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "who"
 
 #define AUTHORS \
   proper_name ("Joseph Arceneaux"), \
   proper_name ("David MacKenzie"), \
   proper_name ("Michael Stone")
+
+#ifndef MAXHOSTNAMELEN
+# define MAXHOSTNAMELEN 64
+#endif
 
 #ifdef RUN_LVL
 # define UT_TYPE_RUN_LVL(U) UT_TYPE_EQ (U, RUN_LVL)
@@ -103,12 +101,9 @@ char *ttyname (int);
 /* If true, attempt to canonicalize hostnames via a DNS lookup. */
 static bool do_lookup;
 
-/* If true, display ips instead of hostnames */
-static bool do_ips;
-
 /* If true, display only a list of usernames and count of
    the users logged on.
-   Ignored for 'who am i'.  */
+   Ignored for `who am i'.  */
 static bool short_list;
 
 /* If true, display only name, line, and time fields.  */
@@ -122,8 +117,8 @@ static bool include_idle;
 /* If true, display a line at the top describing each field.  */
 static bool include_heading;
 
-/* If true, display a '+' for each user if mesg y, a '-' if mesg n,
-   or a '?' if their tty cannot be statted. */
+/* If true, display a `+' for each user if mesg y, a `-' if mesg n,
+   or a `?' if their tty cannot be statted. */
 static bool include_mesg;
 
 /* If true, display process termination & exit status.  */
@@ -161,8 +156,7 @@ static int time_format_width;
 /* for long options with no corresponding short option, use enum */
 enum
 {
-  LOOKUP_OPTION = CHAR_MAX + 1,
-  IPS_OPTION = CHAR_MAX + 2
+  LOOKUP_OPTION = CHAR_MAX + 1
 };
 
 static struct option const longopts[] =
@@ -172,7 +166,6 @@ static struct option const longopts[] =
   {"count", no_argument, NULL, 'q'},
   {"dead", no_argument, NULL, 'd'},
   {"heading", no_argument, NULL, 'H'},
-  {"ips", no_argument, NULL, IPS_OPTION},
   {"login", no_argument, NULL, 'l'},
   {"lookup", no_argument, NULL, LOOKUP_OPTION},
   {"message", no_argument, NULL, 'T'},
@@ -225,10 +218,10 @@ time_string (const STRUCT_UTMP *utmp_ent)
 
   /* Don't take the address of UT_TIME_MEMBER directly.
      Ulrich Drepper wrote:
-     "... GNU libc (and perhaps other libcs as well) have extended
+     ``... GNU libc (and perhaps other libcs as well) have extended
      utmp file formats which do not use a simple time_t ut_time field.
      In glibc, ut_time is a macro which selects for backward compatibility
-     the tv_sec member of a struct timeval value."  */
+     the tv_sec member of a struct timeval value.''  */
   time_t t = UT_TIME_MEMBER (utmp_ent);
   struct tm *tmp = localtime (&t);
 
@@ -315,22 +308,6 @@ print_line (int userlen, const char *user, const char state,
   free (x_exitstr);
 }
 
-/* Return true if a terminal device given as PSTAT allows other users
-   to send messages to; false otherwise */
-static bool
-is_tty_writable (struct stat const *pstat)
-{
-#ifdef TTY_GROUP_NAME
-  /* Ensure the group of the TTY device matches TTY_GROUP_NAME, more info at
-     https://bugzilla.redhat.com/454261 */
-  struct group *ttygr = getgrnam (TTY_GROUP_NAME);
-  if (!ttygr || (pstat->st_gid != ttygr->gr_gid))
-    return false;
-#endif
-
-  return pstat->st_mode & S_IWGRP;
-}
-
 /* Send properly parsed USER_PROCESS info to print_line.  The most
    recent boot time is BOOTTIME. */
 static void
@@ -349,19 +326,27 @@ print_user (const STRUCT_UTMP *utmp_ent, time_t boottime)
 #define DEV_DIR_LEN (sizeof (DEV_DIR_WITH_TRAILING_SLASH) - 1)
 
   char line[sizeof (utmp_ent->ut_line) + DEV_DIR_LEN + 1];
-  char *p = line;
   PIDSTR_DECL_AND_INIT (pidstr, utmp_ent);
 
-  /* Copy ut_line into LINE, prepending '/dev/' if ut_line is not
+  /* Copy ut_line into LINE, prepending `/dev/' if ut_line is not
      already an absolute file name.  Some systems may put the full,
      absolute file name in ut_line.  */
-  if ( ! IS_ABSOLUTE_FILE_NAME (utmp_ent->ut_line))
-    p = stpcpy (p, DEV_DIR_WITH_TRAILING_SLASH);
-  stzncpy (p, utmp_ent->ut_line, sizeof (utmp_ent->ut_line));
+  if (utmp_ent->ut_line[0] == '/')
+    {
+      strncpy (line, utmp_ent->ut_line, sizeof (utmp_ent->ut_line));
+      line[sizeof (utmp_ent->ut_line)] = '\0';
+    }
+  else
+    {
+      strcpy (line, DEV_DIR_WITH_TRAILING_SLASH);
+      strncpy (line + DEV_DIR_LEN, utmp_ent->ut_line,
+               sizeof (utmp_ent->ut_line));
+      line[DEV_DIR_LEN + sizeof (utmp_ent->ut_line)] = '\0';
+    }
 
   if (stat (line, &stats) == 0)
     {
-      mesg = is_tty_writable (&stats) ? '+' : '-';
+      mesg = (stats.st_mode & S_IWGRP) ? '+' : '-';
       last_change = stats.st_atime;
     }
   else
@@ -383,7 +368,8 @@ print_user (const STRUCT_UTMP *utmp_ent, time_t boottime)
       char *display = NULL;
 
       /* Copy the host name into UT_HOST, and ensure it's nul terminated. */
-      stzncpy (ut_host, utmp_ent->ut_host, sizeof (utmp_ent->ut_host));
+      strncpy (ut_host, utmp_ent->ut_host, sizeof (utmp_ent->ut_host));
+      ut_host[sizeof (utmp_ent->ut_host)] = '\0';
 
       /* Look for an X display.  */
       display = strchr (ut_host, ':');
@@ -404,8 +390,7 @@ print_user (const STRUCT_UTMP *utmp_ent, time_t boottime)
           if (hostlen < strlen (host) + strlen (display) + 4)
             {
               hostlen = strlen (host) + strlen (display) + 4;
-              free (hoststr);
-              hoststr = xmalloc (hostlen);
+              hoststr = xrealloc (hoststr, hostlen);
             }
           sprintf (hoststr, "(%s:%s)", host, display);
         }
@@ -414,8 +399,7 @@ print_user (const STRUCT_UTMP *utmp_ent, time_t boottime)
           if (hostlen < strlen (host) + 3)
             {
               hostlen = strlen (host) + 3;
-              free (hoststr);
-              hoststr = xmalloc (hostlen);
+              hoststr = xrealloc (hoststr, hostlen);
             }
           sprintf (hoststr, "(%s)", host);
         }
@@ -428,69 +412,11 @@ print_user (const STRUCT_UTMP *utmp_ent, time_t boottime)
       if (hostlen < 1)
         {
           hostlen = 1;
-          free (hoststr);
-          hoststr = xmalloc (hostlen);
+          hoststr = xrealloc (hoststr, hostlen);
         }
       *hoststr = '\0';
     }
 #endif
-
-  /* Needs configure check for ut_addr_v6, etc */
-  if (do_ips &&
-      memcmp(utmp_ent->ut_addr_v6, "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", 16))
-  {
-        /* Following code is from sysvinit-2.87dsf
-           (GPL Copyright 1991-2004 Miquel van Smoorenburg) */
-        struct sockaddr_in      sin;
-        struct sockaddr_in6     sin6;
-        struct sockaddr         *sa;
-        int                     salen, flags;
-        unsigned int            azero=0;
-	unsigned int		glblunicast=0, linklocal=0, localunicast=0;
-        int                     mapped = 0;
-        int			*a = utmp_ent->ut_addr_v6;
-
-        hoststr = xrealloc(hoststr, 256);
-
-        flags = do_lookup ? 0 : NI_NUMERICHOST;
-
-        /*
-         *      IPv4 or IPv6 ? We use 2 heuristics:
-         *      1. Current IPv6 range uses 2000-3fff or fc00-fdff or fec0-feff. 
-         *         Outside of that is illegal and must be IPv4.
-         *      2. If last 3 bytes are 0, must be IPv4
-         *      3. If IPv6 in IPv4, handle as IPv4
-         *
-         *      Ugly.
-         */
-        if (a[0] == 0 && a[1] == 0 && a[2] == htonl (0xffff))
-                mapped = 1;
-
-	azero = ntohl((unsigned int)a[0]) >> 16;
-	glblunicast = (azero >= 0x2000 && azero <= 0x3fff) ? 1 : 0;
-	localunicast = (azero >= 0xfc00 && azero <= 0xfdff) ? 1 : 0;
-	linklocal = (azero >= 0xfec0 && azero <= 0xfeff) ? 1 : 0;
-
-        if (!(glblunicast || linklocal || localunicast) || mapped ||
-            (a[1] == 0 && a[2] == 0 && a[3] == 0)) {
-                /* IPv4 */
-                sin.sin_family = AF_INET;
-                sin.sin_port = 0;
-                sin.sin_addr.s_addr = mapped ? a[3] : a[0];
-                sa = (struct sockaddr *)&sin;
-                salen = sizeof(sin);
-        } else {
-                /* IPv6 */
-                memset(&sin6, 0, sizeof(sin6));
-                sin6.sin6_family = AF_INET6;
-                sin6.sin6_port = 0;
-                memcpy(sin6.sin6_addr.s6_addr, a, 16);
-                sa = (struct sockaddr *)&sin6;
-                salen = sizeof(sin6);
-        }
-
-	getnameinfo(sa, salen, hoststr, 256, NULL, 0, flags);
-  }
 
   print_line (sizeof UT_USER (utmp_ent), UT_USER (utmp_ent), mesg,
               sizeof utmp_ent->ut_line, utmp_ent->ut_line,
@@ -639,15 +565,15 @@ scan_entries (size_t n, const STRUCT_UTMP *utmp_buf)
       ttyname_b = ttyname (STDIN_FILENO);
       if (!ttyname_b)
         return;
-      if (STRNCMP_LIT (ttyname_b, DEV_DIR_WITH_TRAILING_SLASH) == 0)
+      if (strncmp (ttyname_b, DEV_DIR_WITH_TRAILING_SLASH, DEV_DIR_LEN) == 0)
         ttyname_b += DEV_DIR_LEN;	/* Discard /dev/ prefix.  */
     }
 
   while (n--)
     {
-      if (!my_line_only
-          || STREQ_LEN (ttyname_b, utmp_buf->ut_line,
-                        sizeof (utmp_buf->ut_line)))
+      if (!my_line_only ||
+          strncmp (ttyname_b, utmp_buf->ut_line,
+                   sizeof (utmp_buf->ut_line)) == 0)
         {
           if (need_users && IS_USER_PROCESS (utmp_buf))
             print_user (utmp_buf, boottime);
@@ -684,7 +610,7 @@ who (const char *filename, int options)
   STRUCT_UTMP *utmp_buf;
 
   if (read_utmp (filename, &n_users, &utmp_buf, options) != 0)
-    error (EXIT_FAILURE, errno, "%s", quotef (filename));
+    error (EXIT_FAILURE, errno, "%s", filename);
 
   if (short_list)
     list_entries_who (n_users, utmp_buf);
@@ -698,7 +624,8 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("Usage: %s [OPTION]... [ FILE | ARG1 ARG2 ]\n"), program_name);
@@ -711,11 +638,6 @@ Print information about users who are currently logged in.\n\
   -b, --boot        time of last system boot\n\
   -d, --dead        print dead processes\n\
   -H, --heading     print line of column headings\n\
-"), stdout);
-      fputs (_("\
-      --ips         print ips instead of hostnames. with --lookup,\n\
-                    canonicalizes based on stored IP, if available,\n\
-                    rather than stored hostname\n\
 "), stdout);
       fputs (_("\
   -l, --login       print system login processes\n\
@@ -742,9 +664,9 @@ Print information about users who are currently logged in.\n\
       printf (_("\
 \n\
 If FILE is not specified, use %s.  %s as FILE is common.\n\
-If ARG1 ARG2 given, -m presumed: 'am i' or 'mom likes' are usual.\n\
+If ARG1 ARG2 given, -m presumed: `am i' or `mom likes' are usual.\n\
 "), UTMP_FILE, WTMP_FILE);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
@@ -847,13 +769,9 @@ main (int argc, char **argv)
           do_lookup = true;
           break;
 
-        case IPS_OPTION:
-          do_ips = true;
-          break;
+          case_GETOPT_HELP_CHAR;
 
-        case_GETOPT_HELP_CHAR;
-
-        case_GETOPT_VERSION_CHAR (PROGRAM_NAME, AUTHORS);
+          case_GETOPT_VERSION_CHAR (PROGRAM_NAME, AUTHORS);
 
         default:
           usage (EXIT_FAILURE);
@@ -901,5 +819,5 @@ main (int argc, char **argv)
       usage (EXIT_FAILURE);
     }
 
-  return EXIT_SUCCESS;
+  exit (EXIT_SUCCESS);
 }

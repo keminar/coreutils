@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /*
- * Copyright (C) 2008-2016 Free Software Foundation, Inc.
+ * Copyright (C) 2008, 2009 Free Software Foundation
  * Written by Simon Josefsson.
  *
  * This program is free software: you can redistribute it and/or modify
@@ -22,7 +25,7 @@
 #include "sockets.h"
 
 int
-main (void)
+main (int argc, char *argv[])
 {
   int err;
 

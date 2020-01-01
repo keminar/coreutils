@@ -1,5 +1,5 @@
 /* fchdir replacement.
-   Copyright (C) 2006-2016 Free Software Foundation, Inc.
+   Copyright (C) 2006-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -19,6 +19,7 @@
 /* Specification.  */
 #include <unistd.h>
 
+#include <assert.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -28,12 +29,17 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include "assure.h"
-#include "dosname.h"
-#include "filenamecat.h"
-
 #ifndef REPLACE_OPEN_DIRECTORY
 # define REPLACE_OPEN_DIRECTORY 0
+#endif
+
+#ifndef HAVE_CANONICALIZE_FILE_NAME
+# if GNULIB_CANONICALIZE || GNULIB_CANONICALIZE_LGPL
+#  define HAVE_CANONICALIZE_FILE_NAME 1
+# else
+#  define HAVE_CANONICALIZE_FILE_NAME 0
+#  define canonicalize_file_name(name) NULL
+# endif
 #endif
 
 /* This replacement assumes that a directory is not renamed while opened
@@ -44,8 +50,8 @@
    descriptor, since mingw refuses to rename any in-use file system
    object.  */
 
-/* Array of file descriptors opened.  If REPLACE_OPEN_DIRECTORY or if it points
-   to a directory, it stores info about this directory.  */
+/* Array of file descriptors opened.  If it points to a directory, it stores
+   info about this directory.  */
 typedef struct
 {
   char *name;       /* Absolute name of the directory, or NULL.  */
@@ -54,15 +60,12 @@ typedef struct
 static dir_info_t *dirs;
 static size_t dirs_allocated;
 
-/* Try to ensure dirs has enough room for a slot at index fd; free any
-   contents already in that slot.  Return false and set errno to
-   ENOMEM on allocation failure.  */
+/* Try to ensure dirs has enough room for a slot at index fd.  Return
+   false and set errno to ENOMEM on allocation failure.  */
 static bool
 ensure_dirs_slot (size_t fd)
 {
-  if (fd < dirs_allocated)
-    free (dirs[fd].name);
-  else
+  if (fd >= dirs_allocated)
     {
       size_t new_allocated;
       dir_info_t *new_dirs;
@@ -84,26 +87,36 @@ ensure_dirs_slot (size_t fd)
   return true;
 }
 
-/* Return an absolute name of DIR in malloc'd storage.  */
+/* Return the canonical name of DIR in malloc'd storage.  */
 static char *
 get_name (char const *dir)
 {
-  char *cwd;
   char *result;
-  int saved_errno;
-
-  if (IS_ABSOLUTE_FILE_NAME (dir))
-    return strdup (dir);
-
-  /* We often encounter "."; treat it as a special case.  */
-  cwd = getcwd (NULL, 0);
-  if (!cwd || (dir[0] == '.' && dir[1] == '\0'))
-    return cwd;
-
-  result = mfile_name_concat (cwd, dir, NULL);
-  saved_errno = errno;
-  free (cwd);
-  errno = saved_errno;
+  if (REPLACE_OPEN_DIRECTORY || !HAVE_CANONICALIZE_FILE_NAME)
+    {
+      /* The function canonicalize_file_name has not yet been ported
+         to mingw, with all its drive letter and backslash quirks.
+         Fortunately, getcwd is reliable in this case, but we ensure
+         we can get back to where we started before using it.  Treat
+         "." as a special case, as it is frequently encountered.  */
+      char *cwd = getcwd (NULL, 0);
+      int saved_errno;
+      if (dir[0] == '.' && dir[1] == '\0')
+        return cwd;
+      if (chdir (cwd))
+        return NULL;
+      result = chdir (dir) ? NULL : getcwd (NULL, 0);
+      saved_errno = errno;
+      if (chdir (cwd))
+        abort ();
+      free (cwd);
+      errno = saved_errno;
+    }
+  else
+    {
+      /* Avoid changing the directory.  */
+      result = canonicalize_file_name (dir);
+    }
   return result;
 }
 
@@ -132,7 +145,7 @@ _gl_register_fd (int fd, const char *filename)
 {
   struct stat statbuf;
 
-  assure (0 <= fd);
+  assert (0 <= fd);
   if (REPLACE_OPEN_DIRECTORY
       || (fstat (fd, &statbuf) == 0 && S_ISDIR (statbuf.st_mode)))
     {
@@ -152,11 +165,14 @@ _gl_register_fd (int fd, const char *filename)
    and fcntl.  Both arguments must be valid and distinct file
    descriptors.  Close NEWFD and return -1 if OLDFD is tracking a
    directory, but there is insufficient memory to track the same
-   directory in NEWFD; otherwise return NEWFD.  */
+   directory in NEWFD; otherwise return NEWFD.
+
+   FIXME: Need to implement rpl_fcntl in gnulib, and have it call
+   this.  */
 int
 _gl_register_dup (int oldfd, int newfd)
 {
-  assure (0 <= oldfd && 0 <= newfd && oldfd != newfd);
+  assert (0 <= oldfd && 0 <= newfd && oldfd != newfd);
   if (oldfd < dirs_allocated && dirs[oldfd].name)
     {
       /* Duplicated a directory; must ensure newfd is allocated.  */
@@ -195,6 +211,68 @@ _gl_directory_name (int fd)
   else
     errno = EBADF;
   return NULL;
+}
+
+/* Return stat information about FD in STATBUF.  Needed when
+   rpl_open() used a dummy file to work around an open() that can't
+   normally visit directories.  */
+#if REPLACE_OPEN_DIRECTORY
+int
+rpl_fstat (int fd, struct stat *statbuf)
+{
+  if (0 <= fd && fd < dirs_allocated && dirs[fd].name != NULL)
+    return stat (dirs[fd].name, statbuf);
+  return fstat (fd, statbuf);
+}
+#endif
+
+/* Override opendir() and closedir(), to keep track of the open file
+   descriptors.  Needed because there is a function dirfd().  */
+
+int
+rpl_closedir (DIR *dp)
+#undef closedir
+{
+  int fd = dirfd (dp);
+  int retval = closedir (dp);
+
+  if (retval >= 0)
+    _gl_unregister_fd (fd);
+  return retval;
+}
+
+DIR *
+rpl_opendir (const char *filename)
+#undef opendir
+{
+  DIR *dp;
+
+  dp = opendir (filename);
+  if (dp != NULL)
+    {
+      int fd = dirfd (dp);
+      if (0 <= fd && _gl_register_fd (fd, filename) != fd)
+        {
+          int saved_errno = errno;
+          closedir (dp);
+          errno = saved_errno;
+          return NULL;
+        }
+    }
+  return dp;
+}
+
+/* Override dup(), to keep track of open file descriptors.  */
+
+int
+rpl_dup (int oldfd)
+#undef dup
+{
+  int newfd = dup (oldfd);
+
+  if (0 <= newfd)
+    newfd = _gl_register_dup (oldfd, newfd);
+  return newfd;
 }
 
 

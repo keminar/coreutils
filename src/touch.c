@@ -1,5 +1,6 @@
 /* touch -- change modification and access times of files
-   Copyright (C) 1987-2016 Free Software Foundation, Inc.
+   Copyright (C) 87, 1989-1991, 1995-2005, 2007-2009
+   Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -21,20 +22,19 @@
 #include <stdio.h>
 #include <getopt.h>
 #include <sys/types.h>
-#include <assert.h>
 
 #include "system.h"
 #include "argmatch.h"
 #include "error.h"
 #include "fd-reopen.h"
-#include "parse-datetime.h"
+#include "getdate.h"
 #include "posixtm.h"
 #include "posixver.h"
 #include "quote.h"
 #include "stat-time.h"
 #include "utimens.h"
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "touch"
 
 #define AUTHORS \
@@ -44,7 +44,7 @@
   proper_name ("David MacKenzie"), \
   proper_name ("Randy Smith")
 
-/* Bitmasks for 'change_times'. */
+/* Bitmasks for `change_times'. */
 #define CH_ATIME 1
 #define CH_MTIME 2
 
@@ -56,9 +56,6 @@ static bool no_create;
 
 /* (-r) If true, use times from a reference file.  */
 static bool use_ref;
-
-/* (-h) If true, change the times of an existing symlink, if possible.  */
-static bool no_dereference;
 
 /* If true, the only thing we have to do is change both the
    modification and access time to the current time, so we don't
@@ -85,20 +82,20 @@ static struct option const longopts[] =
   {"time", required_argument, NULL, TIME_OPTION},
   {"no-create", no_argument, NULL, 'c'},
   {"date", required_argument, NULL, 'd'},
+  {"file", required_argument, NULL, 'r'}, /* FIXME: remove --file in 2010 */
   {"reference", required_argument, NULL, 'r'},
-  {"no-dereference", no_argument, NULL, 'h'},
   {GETOPT_HELP_OPTION_DECL},
   {GETOPT_VERSION_OPTION_DECL},
   {NULL, 0, NULL, 0}
 };
 
-/* Valid arguments to the '--time' option. */
+/* Valid arguments to the `--time' option. */
 static char const* const time_args[] =
 {
   "atime", "access", "use", "mtime", "modify", NULL
 };
 
-/* The bits in 'change_times' that those arguments set. */
+/* The bits in `change_times' that those arguments set. */
 static int const time_masks[] =
 {
   CH_ATIME, CH_ATIME, CH_ATIME, CH_MTIME, CH_MTIME
@@ -111,7 +108,7 @@ static void
 get_reldate (struct timespec *result,
              char const *flex_date, struct timespec const *now)
 {
-  if (! parse_datetime (result, flex_date, now))
+  if (! get_date (result, flex_date, now))
     error (EXIT_FAILURE, 0, _("invalid date format %s"), quote (flex_date));
 }
 
@@ -122,20 +119,23 @@ static bool
 touch (const char *file)
 {
   bool ok;
+  struct stat sbuf;
   int fd = -1;
   int open_errno = 0;
-  struct timespec const *t = newtime;
+  struct timespec timespec[2];
+  struct timespec const *t;
 
   if (STREQ (file, "-"))
     fd = STDOUT_FILENO;
-  else if (! (no_create || no_dereference))
+  else if (! no_create)
     {
       /* Try to open FILE, creating it if necessary.  */
       fd = fd_reopen (STDIN_FILENO, file,
-                      O_WRONLY | O_CREAT | O_NONBLOCK | O_NOCTTY, MODE_RW_UGO);
+                      O_WRONLY | O_CREAT | O_NONBLOCK | O_NOCTTY,
+                      S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
 
       /* Don't save a copy of errno if it's EISDIR, since that would lead
-         touch to give a bogus diagnostic for e.g., 'touch /' (assuming
+         touch to give a bogus diagnostic for e.g., `touch /' (assuming
          we don't own / or have write access to it).  On Solaris 5.6,
          and probably other systems, it is EINVAL.  On SunOS4, it's EPERM.  */
       if (fd == -1 && errno != EISDIR && errno != EINVAL && errno != EPERM)
@@ -144,13 +144,24 @@ touch (const char *file)
 
   if (change_times != (CH_ATIME | CH_MTIME))
     {
-      /* We're setting only one of the time values.  */
-      if (change_times == CH_MTIME)
-        newtime[0].tv_nsec = UTIME_OMIT;
-      else
+      /* We're setting only one of the time values.  stat the target to get
+         the other one.  If we have the file descriptor already, use fstat.
+         Otherwise, either we're in no-create mode (and hence didn't call open)
+         or FILE is inaccessible or a directory, so we have to use stat.  */
+      if (fd != -1 ? fstat (fd, &sbuf) : stat (file, &sbuf))
         {
-          assert (change_times == CH_ATIME);
-          newtime[1].tv_nsec = UTIME_OMIT;
+          if (open_errno)
+            error (0, open_errno, _("creating %s"), quote (file));
+          else
+            {
+              if (no_create && (errno == ENOENT || errno == EBADF))
+                return true;
+              error (0, errno, _("failed to get attributes of %s"),
+                     quote (file));
+            }
+          if (fd == STDIN_FILENO)
+            close (fd);
+          return false;
         }
     }
 
@@ -160,23 +171,32 @@ touch (const char *file)
          write access to the file, but don't own it.  */
       t = NULL;
     }
+  else
+    {
+      timespec[0] = (change_times & CH_ATIME
+                     ? newtime[0]
+                     : get_stat_atime (&sbuf));
+      timespec[1] = (change_times & CH_MTIME
+                     ? newtime[1]
+                     : get_stat_mtime (&sbuf));
+      t = timespec;
+    }
 
-  ok = (fdutimensat (fd, AT_FDCWD, (fd == STDOUT_FILENO ? NULL : file), t,
-                     (no_dereference && fd == -1) ? AT_SYMLINK_NOFOLLOW : 0)
-        == 0);
+  ok = (gl_futimens (fd, (fd == STDOUT_FILENO ? NULL : file), t) == 0);
 
   if (fd == STDIN_FILENO)
     {
       if (close (STDIN_FILENO) != 0)
         {
-          error (0, errno, _("failed to close %s"), quoteaf (file));
+          error (0, errno, _("closing %s"), quote (file));
           return false;
         }
     }
   else if (fd == STDOUT_FILENO)
     {
       /* Do not diagnose "touch -c - >&-".  */
-      if (!ok && errno == EBADF && no_create)
+      if (!ok && errno == EBADF && no_create
+          && change_times == (CH_ATIME | CH_MTIME))
         return true;
     }
 
@@ -188,13 +208,13 @@ touch (const char *file)
              - the file does not exist, but the parent directory is unwritable
              - the file exists, but it isn't writable
              I think it's not worth trying to distinguish them.  */
-          error (0, open_errno, _("cannot touch %s"), quoteaf (file));
+          error (0, open_errno, _("cannot touch %s"), quote (file));
         }
       else
         {
           if (no_create && errno == ENOENT)
             return true;
-          error (0, errno, _("setting times of %s"), quoteaf (file));
+          error (0, errno, _("setting times of %s"), quote (file));
         }
       return false;
     }
@@ -206,38 +226,34 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("Usage: %s [OPTION]... FILE...\n"), program_name);
       fputs (_("\
 Update the access and modification times of each FILE to the current time.\n\
 \n\
-A FILE argument that does not exist is created empty, unless -c or -h\n\
-is supplied.\n\
+A FILE argument that does not exist is created empty.\n\
 \n\
 A FILE argument string of - is handled specially and causes touch to\n\
 change the times of the file associated with standard output.\n\
+\n\
 "), stdout);
-
-      emit_mandatory_arg_note ();
-
+      fputs (_("\
+Mandatory arguments to long options are mandatory for short options too.\n\
+"), stdout);
       fputs (_("\
   -a                     change only the access time\n\
   -c, --no-create        do not create any files\n\
   -d, --date=STRING      parse STRING and use it instead of current time\n\
   -f                     (ignored)\n\
-"), stdout);
-      fputs (_("\
-  -h, --no-dereference   affect each symbolic link instead of any referenced\n\
-                         file (useful only on systems that can change the\n\
-                         timestamps of a symlink)\n\
   -m                     change only the modification time\n\
 "), stdout);
       fputs (_("\
   -r, --reference=FILE   use this file's times instead of current time\n\
   -t STAMP               use [[CC]YY]MMDDhhmm[.ss] instead of current time\n\
-      --time=WORD        change the specified time:\n\
+  --time=WORD            change the specified time:\n\
                            WORD is access, atime, or use: equivalent to -a\n\
                            WORD is modify or mtime: equivalent to -m\n\
 "), stdout);
@@ -247,7 +263,7 @@ change the times of the file associated with standard output.\n\
 \n\
 Note that the -d and -t options accept different time-date formats.\n\
 "), stdout);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
@@ -259,6 +275,7 @@ main (int argc, char **argv)
   bool date_set = false;
   bool ok = true;
   char const *flex_date = NULL;
+  int long_idx; /* FIXME: remove in 2010, when --file is removed */
 
   initialize_main (&argc, &argv);
   set_program_name (argv[0]);
@@ -271,7 +288,7 @@ main (int argc, char **argv)
   change_times = 0;
   no_create = use_ref = false;
 
-  while ((c = getopt_long (argc, argv, "acd:fhmr:t:", longopts, NULL)) != -1)
+  while ((c = getopt_long (argc, argv, "acd:fmr:t:", longopts, &long_idx)) != -1)
     {
       switch (c)
         {
@@ -290,15 +307,15 @@ main (int argc, char **argv)
         case 'f':
           break;
 
-        case 'h':
-          no_dereference = true;
-          break;
-
         case 'm':
           change_times |= CH_MTIME;
           break;
 
         case 'r':
+          if (long_idx == 3)
+            error (0, 0,
+                   _("warning: the --%s option is obsolete; use --reference"),
+                   longopts[long_idx].name);
           use_ref = true;
           ref_file = optarg;
           break;
@@ -339,12 +356,9 @@ main (int argc, char **argv)
   if (use_ref)
     {
       struct stat ref_stats;
-      /* Don't use (no_dereference?lstat:stat) (args), since stat
-         might be an object-like macro.  */
-      if (no_dereference ? lstat (ref_file, &ref_stats)
-          : stat (ref_file, &ref_stats))
+      if (stat (ref_file, &ref_stats))
         error (EXIT_FAILURE, errno,
-               _("failed to get attributes of %s"), quoteaf (ref_file));
+               _("failed to get attributes of %s"), quote (ref_file));
       newtime[0] = get_stat_atime (&ref_stats);
       newtime[1] = get_stat_mtime (&ref_stats);
       date_set = true;
@@ -386,7 +400,7 @@ main (int argc, char **argv)
         }
     }
 
-  /* The obsolete 'MMDDhhmm[YY]' form is valid IFF there are
+  /* The obsolete `MMDDhhmm[YY]' form is valid IFF there are
      two or more non-option arguments.  */
   if (!date_set && 2 <= argc - optind && posix2_version () < 200112
       && posixtime (&newtime[0].tv_sec, argv[optind],
@@ -399,18 +413,12 @@ main (int argc, char **argv)
       if (! getenv ("POSIXLY_CORRECT"))
         {
           struct tm const *tm = localtime (&newtime[0].tv_sec);
-
-          /* Technically, it appears that even a deliberate attempt to cause
-             the above localtime to return NULL will always fail because our
-             posixtime implementation rejects all dates for which localtime
-             would fail.  However, skip the warning if it ever fails.  */
-          if (tm)
-            error (0, 0,
-                   _("warning: 'touch %s' is obsolete; use "
-                     "'touch -t %04ld%02d%02d%02d%02d.%02d'"),
-                   argv[optind],
-                   tm->tm_year + 1900L, tm->tm_mon + 1, tm->tm_mday,
-                   tm->tm_hour, tm->tm_min, tm->tm_sec);
+          error (0, 0,
+                 _("warning: `touch %s' is obsolete; use "
+                   "`touch -t %04ld%02d%02d%02d%02d.%02d'"),
+                 argv[optind],
+                 tm->tm_year + 1900L, tm->tm_mon + 1, tm->tm_mday,
+                 tm->tm_hour, tm->tm_min, tm->tm_sec);
         }
 
       optind++;
@@ -421,7 +429,10 @@ main (int argc, char **argv)
       if (change_times == (CH_ATIME | CH_MTIME))
         amtime_now = true;
       else
-        newtime[1].tv_nsec = newtime[0].tv_nsec = UTIME_NOW;
+        {
+          gettime (&newtime[0]);
+          newtime[1] = newtime[0];
+        }
     }
 
   if (optind == argc)
@@ -433,5 +444,5 @@ main (int argc, char **argv)
   for (; optind < argc; ++optind)
     ok &= touch (argv[optind]);
 
-  return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+  exit (ok ? EXIT_SUCCESS : EXIT_FAILURE);
 }

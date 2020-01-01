@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Tests of fstatat.
-   Copyright (C) 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -20,9 +23,6 @@
 
 #include <sys/stat.h>
 
-#include "signature.h"
-SIGNATURE_CHECK (fstatat, int, (int, char const *, struct stat *, int));
-
 #include <fcntl.h>
 #include <errno.h>
 #include <stdbool.h>
@@ -31,14 +31,22 @@ SIGNATURE_CHECK (fstatat, int, (int, char const *, struct stat *, int));
 #include <unistd.h>
 
 #include "openat.h"
-#include "progname.h"
+#include "pathmax.h"
 #include "same-inode.h"
-#include "ignore-value.h"
-#include "macros.h"
 
-#ifndef BASE
-# define BASE "test-fstatat.t"
-#endif
+#define ASSERT(expr) \
+  do                                                                         \
+    {                                                                        \
+      if (!(expr))                                                           \
+	{                                                                    \
+	  fprintf (stderr, "%s:%d: assertion failed\n", __FILE__, __LINE__);  \
+	  fflush (stderr);                                                   \
+	  abort ();                                                          \
+	}                                                                    \
+    }                                                                        \
+  while (0)
+
+#define BASE "test-fstatat.t"
 
 #include "test-lstat.h"
 #include "test-stat.h"
@@ -49,63 +57,32 @@ static int dfd = AT_FDCWD;
 static int
 do_stat (char const *name, struct stat *st)
 {
-#ifdef TEST_STATAT
   return statat (dfd, name, st);
-#else
-  return fstatat (dfd, name, st, 0);
-#endif
 }
 
 /* Wrapper around fstatat to test lstat behavior.  */
 static int
 do_lstat (char const *name, struct stat *st)
 {
-#ifdef TEST_STATAT
   return lstatat (dfd, name, st);
-#else
-  return fstatat (dfd, name, st, AT_SYMLINK_NOFOLLOW);
-#endif
 }
 
 int
-main (int argc _GL_UNUSED, char *argv[])
+main ()
 {
   int result;
-
-  set_program_name (argv[0]);
-
-  /* Remove any leftovers from a previous partial run.  */
-  ignore_value (system ("rm -rf " BASE "*"));
-
-  /* Test behaviour for invalid file descriptors.  */
-  {
-    struct stat statbuf;
-
-    errno = 0;
-    ASSERT (fstatat (-1, "foo", &statbuf, 0) == -1);
-    ASSERT (errno == EBADF);
-  }
-  {
-    struct stat statbuf;
-
-    close (99);
-    errno = 0;
-    ASSERT (fstatat (99, "foo", &statbuf, 0) == -1);
-    ASSERT (errno == EBADF);
-  }
-
-  result = test_stat_func (do_stat, false);
-  ASSERT (test_lstat_func (do_lstat, false) == result);
+  ASSERT (test_stat_func (do_stat) == 0);
+  result = test_lstat_func (do_lstat, false);
   dfd = open (".", O_RDONLY);
   ASSERT (0 <= dfd);
-  ASSERT (test_stat_func (do_stat, false) == result);
+  ASSERT (test_stat_func (do_stat) == 0);
   ASSERT (test_lstat_func (do_lstat, false) == result);
   ASSERT (close (dfd) == 0);
 
   /* FIXME - add additional tests of dfd not at current directory.  */
 
   if (result == 77)
-    fputs ("skipping test: symlinks not supported on this file system\n",
-           stderr);
+    fputs ("skipping test: symlinks not supported on this filesystem\n",
+	   stderr);
   return result;
 }

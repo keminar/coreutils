@@ -1,5 +1,5 @@
 /* provide a replacement openat function
-   Copyright (C) 2004-2016 Free Software Foundation, Inc.
+   Copyright (C) 2004-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -16,39 +16,22 @@
 
 /* written by Jim Meyering */
 
-/* If the user's config.h happens to include <fcntl.h>, let it include only
-   the system's <fcntl.h> here, so that orig_openat doesn't recurse to
-   rpl_openat.  */
-#define __need_system_fcntl_h
 #include <config.h>
-
-/* Get the original definition of open.  It might be defined as a macro.  */
-#include <fcntl.h>
-#include <sys/types.h>
-#undef __need_system_fcntl_h
-
-#if HAVE_OPENAT
-static int
-orig_openat (int fd, char const *filename, int flags, mode_t mode)
-{
-  return openat (fd, filename, flags, mode);
-}
-#endif
-
-/* Write "fcntl.h" here, not <fcntl.h>, otherwise OSF/1 5.1 DTK cc eliminates
-   this include because of the preliminary #include <fcntl.h> above.  */
-#include "fcntl.h"
 
 #include "openat.h"
 
 #include <stdarg.h>
-#include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <errno.h>
+
+#include "dirname.h" /* solely for definition of IS_ABSOLUTE_FILE_NAME */
+#include "openat-priv.h"
+#include "save-cwd.h"
 
 #if HAVE_OPENAT
+
+# undef openat
 
 /* Like openat, but work around Solaris 9 bugs with trailing slash.  */
 int
@@ -64,13 +47,13 @@ rpl_openat (int dfd, char const *filename, int flags, ...)
       va_start (arg, flags);
 
       /* We have to use PROMOTED_MODE_T instead of mode_t, otherwise GCC 4
-         creates crashing code when 'mode_t' is smaller than 'int'.  */
+	 creates crashing code when 'mode_t' is smaller than 'int'.  */
       mode = va_arg (arg, PROMOTED_MODE_T);
 
       va_end (arg);
     }
 
-# if OPEN_TRAILING_SLASH_BUG
+#if OPEN_TRAILING_SLASH_BUG
   /* If the filename ends in a slash and one of O_CREAT, O_WRONLY, O_RDWR
      is specified, then fail.
      Rationale: POSIX <http://www.opengroup.org/susv3/basedefs/xbd_chap04.html>
@@ -96,16 +79,16 @@ rpl_openat (int dfd, char const *filename, int flags, ...)
     {
       size_t len = strlen (filename);
       if (len > 0 && filename[len - 1] == '/')
-        {
-          errno = EISDIR;
-          return -1;
-        }
+	{
+	  errno = EISDIR;
+	  return -1;
+	}
     }
-# endif
+#endif
 
-  fd = orig_openat (dfd, filename, flags, mode);
+  fd = openat (dfd, filename, flags, mode);
 
-# if OPEN_TRAILING_SLASH_BUG
+#if OPEN_TRAILING_SLASH_BUG
   /* If the filename ends in a slash and fd does not refer to a directory,
      then fail.
      Rationale: POSIX <http://www.opengroup.org/susv3/basedefs/xbd_chap04.html>
@@ -123,27 +106,23 @@ rpl_openat (int dfd, char const *filename, int flags, ...)
       /* We know len is positive, since open did not fail with ENOENT.  */
       size_t len = strlen (filename);
       if (filename[len - 1] == '/')
-        {
-          struct stat statbuf;
+	{
+	  struct stat statbuf;
 
-          if (fstat (fd, &statbuf) >= 0 && !S_ISDIR (statbuf.st_mode))
-            {
-              close (fd);
-              errno = ENOTDIR;
-              return -1;
-            }
-        }
+	  if (fstat (fd, &statbuf) >= 0 && !S_ISDIR (statbuf.st_mode))
+	    {
+	      close (fd);
+	      errno = ENOTDIR;
+	      return -1;
+	    }
+	}
     }
-# endif
+#endif
 
   return fd;
 }
 
 #else /* !HAVE_OPENAT */
-
-# include "dosname.h" /* solely for definition of IS_ABSOLUTE_FILE_NAME */
-# include "openat-priv.h"
-# include "save-cwd.h"
 
 /* Replacement for Solaris' openat function.
    <http://www.google.com/search?q=openat+site:docs.sun.com>
@@ -164,7 +143,7 @@ openat (int fd, char const *file, int flags, ...)
       va_start (arg, flags);
 
       /* We have to use PROMOTED_MODE_T instead of mode_t, otherwise GCC 4
-         creates crashing code when 'mode_t' is smaller than 'int'.  */
+	 creates crashing code when 'mode_t' is smaller than 'int'.  */
       mode = va_arg (arg, PROMOTED_MODE_T);
 
       va_end (arg);
@@ -180,13 +159,13 @@ openat (int fd, char const *file, int flags, ...)
    directory argument.
 
    If a previous attempt to restore the current working directory
-   failed, then we must not even try to access a '.'-relative name.
+   failed, then we must not even try to access a `.'-relative name.
    It is the caller's responsibility not to call this function
    in that case.  */
 
 int
 openat_permissive (int fd, char const *file, int flags, mode_t mode,
-                   int *cwd_errno)
+		   int *cwd_errno)
 {
   struct saved_cwd saved_cwd;
   int saved_errno;
@@ -201,18 +180,18 @@ openat_permissive (int fd, char const *file, int flags, mode_t mode,
     char *proc_file = openat_proc_name (buf, fd, file);
     if (proc_file)
       {
-        int open_result = open (proc_file, flags, mode);
-        int open_errno = errno;
-        if (proc_file != buf)
-          free (proc_file);
-        /* If the syscall succeeds, or if it fails with an unexpected
-           errno value, then return right away.  Otherwise, fall through
-           and resort to using save_cwd/restore_cwd.  */
-        if (0 <= open_result || ! EXPECTED_ERRNO (open_errno))
-          {
-            errno = open_errno;
-            return open_result;
-          }
+	int open_result = open (proc_file, flags, mode);
+	int open_errno = errno;
+	if (proc_file != buf)
+	  free (proc_file);
+	/* If the syscall succeeds, or if it fails with an unexpected
+	   errno value, then return right away.  Otherwise, fall through
+	   and resort to using save_cwd/restore_cwd.  */
+	if (0 <= open_result || ! EXPECTED_ERRNO (open_errno))
+	  {
+	    errno = open_errno;
+	    return open_result;
+	  }
       }
   }
 
@@ -220,17 +199,8 @@ openat_permissive (int fd, char const *file, int flags, mode_t mode,
   if (! save_ok)
     {
       if (! cwd_errno)
-        openat_save_fail (errno);
+	openat_save_fail (errno);
       *cwd_errno = errno;
-    }
-  if (0 <= fd && fd == saved_cwd.desc)
-    {
-      /* If saving the working directory collides with the user's
-         requested fd, then the user's fd must have been closed to
-         begin with.  */
-      free_cwd (&saved_cwd);
-      errno = EBADF;
-      return -1;
     }
 
   err = fchdir (fd);
@@ -241,17 +211,17 @@ openat_permissive (int fd, char const *file, int flags, mode_t mode,
       err = open (file, flags, mode);
       saved_errno = errno;
       if (save_ok && restore_cwd (&saved_cwd) != 0)
-        {
-          if (! cwd_errno)
-            {
-              /* Don't write a message to just-created fd 2.  */
-              saved_errno = errno;
-              if (err == STDERR_FILENO)
-                close (err);
-              openat_restore_fail (saved_errno);
-            }
-          *cwd_errno = errno;
-        }
+	{
+	  if (! cwd_errno)
+	    {
+	      /* Don't write a message to just-created fd 2.  */
+	      saved_errno = errno;
+	      if (err == STDERR_FILENO)
+		close (err);
+	      openat_restore_fail (saved_errno);
+	    }
+	  *cwd_errno = errno;
+	}
     }
 
   free_cwd (&saved_cwd);
@@ -265,18 +235,18 @@ bool
 openat_needs_fchdir (void)
 {
   bool needs_fchdir = true;
-  int fd = open ("/", O_SEARCH);
+  int fd = open ("/", O_RDONLY);
 
   if (0 <= fd)
     {
       char buf[OPENAT_BUFFER_SIZE];
       char *proc_file = openat_proc_name (buf, fd, ".");
       if (proc_file)
-        {
-          needs_fchdir = false;
-          if (proc_file != buf)
-            free (proc_file);
-        }
+	{
+	  needs_fchdir = false;
+	  if (proc_file != buf)
+	    free (proc_file);
+	}
       close (fd);
     }
 

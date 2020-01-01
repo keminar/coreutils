@@ -1,20 +1,23 @@
 #!/bin/sh
-: ${srcdir=.}
-. "$srcdir/init.sh"; path_prepend_ .
 
+tmpfiles=""
+trap 'rm -fr $tmpfiles' 1 2 3 15
+
+tmpfiles="t-xstrtoimax.tmp t-xstrtoimax.xo"
+: > t-xstrtoimax.tmp
 too_big=99999999999999999999999999999999999999999999999999999999999999999999
 result=0
 
 # test xstrtoimax
-test-xstrtoimax 1 >> out 2>&1 || result=1
-test-xstrtoimax -1 >> out 2>&1 || result=1
-test-xstrtoimax 1k >> out 2>&1 || result=1
-test-xstrtoimax ${too_big}h >> out 2>&1 && result=1
-test-xstrtoimax $too_big >> out 2>&1 && result=1
-test-xstrtoimax x >> out 2>&1 && result=1
-test-xstrtoimax 9x >> out 2>&1 && result=1
-test-xstrtoimax 010 >> out 2>&1 || result=1
-test-xstrtoimax MiB >> out 2>&1 || result=1
+./test-xstrtoimax${EXEEXT} 1 >> t-xstrtoimax.tmp 2>&1 || result=1
+./test-xstrtoimax${EXEEXT} -1 >> t-xstrtoimax.tmp 2>&1 || result=1
+./test-xstrtoimax${EXEEXT} 1k >> t-xstrtoimax.tmp 2>&1 || result=1
+./test-xstrtoimax${EXEEXT} ${too_big}h >> t-xstrtoimax.tmp 2>&1 && result=1
+./test-xstrtoimax${EXEEXT} $too_big >> t-xstrtoimax.tmp 2>&1 && result=1
+./test-xstrtoimax${EXEEXT} x >> t-xstrtoimax.tmp 2>&1 && result=1
+./test-xstrtoimax${EXEEXT} 9x >> t-xstrtoimax.tmp 2>&1 && result=1
+./test-xstrtoimax${EXEEXT} 010 >> t-xstrtoimax.tmp 2>&1 || result=1
+./test-xstrtoimax${EXEEXT} MiB >> t-xstrtoimax.tmp 2>&1 || result=1
 
 # Find out how to remove carriage returns from output. Solaris /usr/ucb/tr
 # does not understand '\r'.
@@ -25,22 +28,24 @@ else
 fi
 
 # normalize output
-LC_ALL=C tr -d "$cr" < out > k
-mv k out
+LC_ALL=C tr -d "$cr" < t-xstrtoimax.tmp > t-xstrtoimax.xo
+mv t-xstrtoimax.xo t-xstrtoimax.tmp
 
 # compare expected output
-cat > exp <<EOF
+cat > t-xstrtoimax.xo <<EOF
 1->1 ()
 -1->-1 ()
 1k->1024 ()
-invalid suffix in X argument '${too_big}h'
-X argument '$too_big' too large
-invalid X argument 'x'
-invalid suffix in X argument '9x'
+invalid suffix in X argument \`${too_big}h'
+X argument \`$too_big' too large
+invalid X argument \`x'
+invalid suffix in X argument \`9x'
 010->8 ()
 MiB->1048576 ()
 EOF
 
-compare exp out || result=1
+diff t-xstrtoimax.xo t-xstrtoimax.tmp || result=1
 
-Exit $result
+rm -fr $tmpfiles
+
+exit $result

@@ -1,5 +1,5 @@
 /* pathchk -- check whether file names are valid or portable
-   Copyright (C) 1991-2016 Free Software Foundation, Inc.
+   Copyright (C) 1991-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -18,13 +18,21 @@
 #include <stdio.h>
 #include <getopt.h>
 #include <sys/types.h>
-#include <wchar.h>
+#if HAVE_WCHAR_H
+# include <wchar.h>
+#endif
 
 #include "system.h"
 #include "error.h"
 #include "quote.h"
+#include "quotearg.h"
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+#if ! (HAVE_MBRLEN && HAVE_MBSTATE_T)
+# define mbrlen(s, n, ps) 1
+# define mbstate_t int
+#endif
+
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "pathchk"
 
 #define AUTHORS \
@@ -82,7 +90,8 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("Usage: %s [OPTION]... NAME...\n"), program_name);
@@ -95,7 +104,7 @@ Diagnose invalid or unportable file names.\n\
 "), stdout);
       fputs (HELP_OPTION_DESCRIPTION, stdout);
       fputs (VERSION_OPTION_DESCRIPTION, stdout);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
@@ -152,7 +161,7 @@ main (int argc, char **argv)
     ok &= validate_file_name (argv[optind],
                               check_basic_portability, check_extra_portability);
 
-  return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+  exit (ok ? EXIT_SUCCESS : EXIT_FAILURE);
 }
 
 /* If FILE contains a component with a leading "-", report an error
@@ -166,8 +175,8 @@ no_leading_hyphen (char const *file)
   for (p = file;  (p = strchr (p, '-'));  p++)
     if (p == file || p[-1] == '/')
       {
-        error (0, 0, _("leading '-' in a component of file name %s"),
-               quoteaf (file));
+        error (0, 0, _("leading `-' in a component of file name %s"),
+               quote (file));
         return false;
       }
 
@@ -189,13 +198,13 @@ portable_chars_only (char const *file, size_t filelen)
 
   if (*invalid)
     {
-      mbstate_t mbstate = { 0, };
+      DECLARE_ZEROED_AGGREGATE (mbstate_t, mbstate);
       size_t charlen = mbrlen (invalid, filelen - validlen, &mbstate);
       error (0, 0,
              _("nonportable character %s in file name %s"),
              quotearg_n_style_mem (1, locale_quoting_style, invalid,
                                    (charlen <= MB_LEN_MAX ? charlen : 1)),
-             quoteaf_n (0, file));
+             quote_n (0, file));
       return false;
     }
 
@@ -204,7 +213,7 @@ portable_chars_only (char const *file, size_t filelen)
 
 /* Return the address of the start of the next file name component in F.  */
 
-static char * _GL_ATTRIBUTE_PURE
+static char *
 component_start (char *f)
 {
   while (*f == '/')
@@ -214,7 +223,7 @@ component_start (char *f)
 
 /* Return the size of the file name component F.  F must be nonempty.  */
 
-static size_t _GL_ATTRIBUTE_PURE
+static size_t
 component_len (char const *f)
 {
   size_t len;
@@ -289,7 +298,7 @@ validate_file_name (char *file, bool check_basic_portability,
         file_exists = true;
       else if (errno != ENOENT || filelen == 0)
         {
-          error (0, errno, "%s", quotef (file));
+          error (0, errno, "%s", file);
           return false;
         }
     }
@@ -322,7 +331,7 @@ validate_file_name (char *file, bool check_basic_portability,
           unsigned long int len = filelen;
           unsigned long int maxlen = maxsize - 1;
           error (0, 0, _("limit %lu exceeded by length %lu of file name %s"),
-                 maxlen, len, quoteaf (file));
+                 maxlen, len, quote (file));
           return false;
         }
     }
@@ -392,7 +401,7 @@ validate_file_name (char *file, bool check_basic_portability,
 
                   default:
                     *start = '\0';
-                    error (0, errno, "%s", quotef (dir));
+                    error (0, errno, "%s", dir);
                     *start = c;
                     return false;
                   }

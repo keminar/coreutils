@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Tests of readlink.
-   Copyright (C) 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -38,7 +41,7 @@ test_readlink (ssize_t (*func) (char const *, char *, size_t), bool print)
   ASSERT (errno == ENOENT);
   errno = 0;
   ASSERT (func ("", buf, sizeof buf) == -1);
-  ASSERT (errno == ENOENT || errno == EINVAL);
+  ASSERT (errno == ENOENT);
   errno = 0;
   ASSERT (func (".", buf, sizeof buf) == -1);
   ASSERT (errno == EINVAL);
@@ -51,14 +54,14 @@ test_readlink (ssize_t (*func) (char const *, char *, size_t), bool print)
   ASSERT (errno == EINVAL);
   errno = 0;
   ASSERT (func (BASE "file/", buf, sizeof buf) == -1);
-  ASSERT (errno == ENOTDIR || errno == EINVAL); /* AIX yields EINVAL */
+  ASSERT (errno == ENOTDIR);
+  ASSERT (unlink (BASE "file") == 0);
 
   /* Now test actual symlinks.  */
   if (symlink (BASE "dir", BASE "link"))
     {
-      ASSERT (unlink (BASE "file") == 0);
       if (print)
-        fputs ("skipping test: symlinks not supported on this file system\n",
+        fputs ("skipping test: symlinks not supported on this filesystem\n",
                stderr);
       return 77;
     }
@@ -66,17 +69,6 @@ test_readlink (ssize_t (*func) (char const *, char *, size_t), bool print)
   errno = 0;
   ASSERT (func (BASE "link/", buf, sizeof buf) == -1);
   ASSERT (errno == EINVAL);
-  ASSERT (symlink (BASE "link", BASE "link2") == 0);
-  errno = 0;
-  ASSERT (func (BASE "link2/", buf, sizeof buf) == -1);
-  ASSERT (errno == EINVAL);
-  ASSERT (unlink (BASE "link2") == 0);
-  ASSERT (symlink (BASE "file", BASE "link2") == 0);
-  errno = 0;
-  ASSERT (func (BASE "link2/", buf, sizeof buf) == -1);
-  ASSERT (errno == ENOTDIR || errno == EINVAL); /* AIX yields EINVAL */
-  ASSERT (unlink (BASE "file") == 0);
-  ASSERT (unlink (BASE "link2") == 0);
   {
     /* Up till now, no readlink has been successful, so buf should be
        unchanged.  */
@@ -94,13 +86,13 @@ test_readlink (ssize_t (*func) (char const *, char *, size_t), bool print)
     result = readlink (BASE "link", buf, 1);
     if (result == -1)
       {
-        ASSERT (errno == ERANGE);
-        ASSERT (buf[0] == (char) 0xff);
+	ASSERT (errno == ERANGE);
+	ASSERT (buf[0] == (char) 0xff);
       }
     else
       {
-        ASSERT (result == 1);
-        ASSERT (buf[0] == BASE[0]);
+	ASSERT (result == 1);
+	ASSERT (buf[0] == BASE[0]);
       }
     ASSERT (buf[1] == (char) 0xff);
     ASSERT (func (BASE "link", buf, len) == len);

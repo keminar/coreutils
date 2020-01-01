@@ -1,5 +1,5 @@
 /* Open a descriptor to a file.
-   Copyright (C) 2007-2016 Free Software Foundation, Inc.
+   Copyright (C) 2007-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -16,27 +16,22 @@
 
 /* Written by Bruno Haible <bruno@clisp.org>, 2007.  */
 
-/* If the user's config.h happens to include <fcntl.h>, let it include only
-   the system's <fcntl.h> here, so that orig_open doesn't recurse to
-   rpl_open.  */
-#define __need_system_fcntl_h
 #include <config.h>
 
 /* Get the original definition of open.  It might be defined as a macro.  */
+#define __need_system_fcntl_h
 #include <fcntl.h>
-#include <sys/types.h>
 #undef __need_system_fcntl_h
+#include <sys/types.h>
 
-static int
+static inline int
 orig_open (const char *filename, int flags, mode_t mode)
 {
   return open (filename, flags, mode);
 }
 
 /* Specification.  */
-/* Write "fcntl.h" here, not <fcntl.h>, otherwise OSF/1 5.1 DTK cc eliminates
-   this include because of the preliminary #include <fcntl.h> above.  */
-#include "fcntl.h"
+#include <fcntl.h>
 
 #include <errno.h>
 #include <stdarg.h>
@@ -62,20 +57,11 @@ open (const char *filename, int flags, ...)
       va_start (arg, flags);
 
       /* We have to use PROMOTED_MODE_T instead of mode_t, otherwise GCC 4
-         creates crashing code when 'mode_t' is smaller than 'int'.  */
+	 creates crashing code when 'mode_t' is smaller than 'int'.  */
       mode = va_arg (arg, PROMOTED_MODE_T);
 
       va_end (arg);
     }
-
-#if GNULIB_defined_O_NONBLOCK
-  /* The only known platform that lacks O_NONBLOCK is mingw, but it
-     also lacks named pipes and Unix sockets, which are the only two
-     file types that require non-blocking handling in open().
-     Therefore, it is safe to ignore O_NONBLOCK here.  It is handy
-     that mingw also lacks openat(), so that is also covered here.  */
-  flags &= ~O_NONBLOCK;
-#endif
 
 #if (defined _WIN32 || defined __WIN32__) && ! defined __CYGWIN__
   if (strcmp (filename, "/dev/null") == 0)
@@ -108,10 +94,10 @@ open (const char *filename, int flags, ...)
     {
       size_t len = strlen (filename);
       if (len > 0 && filename[len - 1] == '/')
-        {
-          errno = EISDIR;
-          return -1;
-        }
+	{
+	  errno = EISDIR;
+	  return -1;
+	}
     }
 #endif
 
@@ -125,8 +111,7 @@ open (const char *filename, int flags, ...)
      override fstat() in fchdir.c to hide the fact that we have a
      dummy.  */
   if (REPLACE_OPEN_DIRECTORY && fd < 0 && errno == EACCES
-      && ((flags & O_ACCMODE) == O_RDONLY
-          || (O_SEARCH != O_RDONLY && (flags & O_ACCMODE) == O_SEARCH)))
+      && (flags & O_ACCMODE) == O_RDONLY)
     {
       struct stat statbuf;
       if (stat (filename, &statbuf) == 0 && S_ISDIR (statbuf.st_mode))
@@ -159,16 +144,16 @@ open (const char *filename, int flags, ...)
       /* We know len is positive, since open did not fail with ENOENT.  */
       size_t len = strlen (filename);
       if (filename[len - 1] == '/')
-        {
-          struct stat statbuf;
+	{
+	  struct stat statbuf;
 
-          if (fstat (fd, &statbuf) >= 0 && !S_ISDIR (statbuf.st_mode))
-            {
-              close (fd);
-              errno = ENOTDIR;
-              return -1;
-            }
-        }
+	  if (fstat (fd, &statbuf) >= 0 && !S_ISDIR (statbuf.st_mode))
+	    {
+	      close (fd);
+	      errno = ENOTDIR;
+	      return -1;
+	    }
+	}
     }
 #endif
 

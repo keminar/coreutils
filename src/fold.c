@@ -1,5 +1,5 @@
 /* fold -- wrap each input line to fit in specified width.
-   Copyright (C) 1991-2016 Free Software Foundation, Inc.
+   Copyright (C) 91, 1995-2006, 2008-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -24,12 +24,12 @@
 
 #include "system.h"
 #include "error.h"
-#include "fadvise.h"
-#include "xdectoint.h"
+#include "quote.h"
+#include "xstrtol.h"
 
 #define TAB_WIDTH 8
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "fold"
 
 #define AUTHORS proper_name ("David MacKenzie")
@@ -59,7 +59,8 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("\
@@ -67,12 +68,13 @@ Usage: %s [OPTION]... [FILE]...\n\
 "),
               program_name);
       fputs (_("\
-Wrap input lines in each FILE, writing to standard output.\n\
+Wrap input lines in each FILE (standard input by default), writing to\n\
+standard output.\n\
+\n\
 "), stdout);
-
-      emit_stdin_note ();
-      emit_mandatory_arg_note ();
-
+      fputs (_("\
+Mandatory arguments to long options are mandatory for short options too.\n\
+"), stdout);
       fputs (_("\
   -b, --bytes         count bytes rather than columns\n\
   -s, --spaces        break at spaces\n\
@@ -80,7 +82,7 @@ Wrap input lines in each FILE, writing to standard output.\n\
 "), stdout);
       fputs (HELP_OPTION_DESCRIPTION, stdout);
       fputs (VERSION_OPTION_DESCRIPTION, stdout);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
@@ -121,7 +123,7 @@ fold_file (char const *filename, size_t width)
   FILE *istream;
   int c;
   size_t column = 0;		/* Screen column where next char will go. */
-  size_t offset_out = 0;	/* Index in 'line_out' for next char. */
+  size_t offset_out = 0;	/* Index in `line_out' for next char. */
   static char *line_out = NULL;
   static size_t allocated_out = 0;
   int saved_errno;
@@ -136,11 +138,9 @@ fold_file (char const *filename, size_t width)
 
   if (istream == NULL)
     {
-      error (0, errno, "%s", quotef (filename));
+      error (0, errno, "%s", filename);
       return false;
     }
-
-  fadvise (istream, FADVISE_SEQUENTIAL);
 
   while ((c = getc (istream)) != EOF)
     {
@@ -221,14 +221,14 @@ fold_file (char const *filename, size_t width)
 
   if (ferror (istream))
     {
-      error (0, saved_errno, "%s", quotef (filename));
+      error (0, saved_errno, "%s", filename);
       if (!STREQ (filename, "-"))
         fclose (istream);
       return false;
     }
   if (!STREQ (filename, "-") && fclose (istream) == EOF)
     {
-      error (0, errno, "%s", quotef (filename));
+      error (0, errno, "%s", filename);
       return false;
     }
 
@@ -279,8 +279,14 @@ main (int argc, char **argv)
             }
           /* Fall through.  */
         case 'w':		/* Line width. */
-          width = xdectoumax (optarg, 1, SIZE_MAX - TAB_WIDTH - 1, "",
-                              _("invalid number of columns"), 0);
+          {
+            unsigned long int tmp_ulong;
+            if (! (xstrtoul (optarg, NULL, 10, &tmp_ulong, "") == LONGINT_OK
+                   && 0 < tmp_ulong && tmp_ulong < SIZE_MAX - TAB_WIDTH))
+              error (EXIT_FAILURE, 0,
+                     _("invalid number of columns: %s"), quote (optarg));
+            width = tmp_ulong;
+          }
           break;
 
         case_GETOPT_HELP_CHAR;
@@ -304,5 +310,5 @@ main (int argc, char **argv)
   if (have_read_stdin && fclose (stdin) == EOF)
     error (EXIT_FAILURE, errno, "-");
 
-  return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+  exit (ok ? EXIT_SUCCESS : EXIT_FAILURE);
 }

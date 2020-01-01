@@ -1,9 +1,12 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Test of link() function.
-   Copyright (C) 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -18,9 +21,6 @@
 
 #include <unistd.h>
 
-#include "signature.h"
-SIGNATURE_CHECK (link, int, (char const *, char const *));
-
 #include <errno.h>
 #include <fcntl.h>
 #include <stdbool.h>
@@ -30,18 +30,27 @@ SIGNATURE_CHECK (link, int, (char const *, char const *));
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "ignore-value.h"
-#include "macros.h"
+#define ASSERT(expr) \
+  do                                                                         \
+    {                                                                        \
+      if (!(expr))                                                           \
+        {                                                                    \
+          fprintf (stderr, "%s:%d: assertion failed\n", __FILE__, __LINE__); \
+          fflush (stderr);                                                   \
+          abort ();                                                          \
+        }                                                                    \
+    }                                                                        \
+  while (0)
 
 #define BASE "test-link.t"
 
 #include "test-link.h"
 
 int
-main (void)
+main (int argc, char **argv)
 {
   /* Remove any garbage left from previous partial runs.  */
-  ignore_value (system ("rm -rf " BASE "*"));
+  ASSERT (system ("rm -rf " BASE "*") == 0);
 
   return test_link (link, true);
 }

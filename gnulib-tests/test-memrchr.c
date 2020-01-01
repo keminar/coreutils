@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /*
- * Copyright (C) 2008-2016 Free Software Foundation, Inc.
+ * Copyright (C) 2008-2009 Free Software Foundation
  * Written by Eric Blake and Bruno Haible
  *
  * This program is free software: you can redistribute it and/or modify
@@ -19,20 +22,29 @@
 
 #include <string.h>
 
-#include "signature.h"
-SIGNATURE_CHECK (memrchr, void *, (void const *, int, size_t));
-
+#include <stdio.h>
 #include <stdlib.h>
 
 #include "zerosize-ptr.h"
-#include "macros.h"
+
+#define ASSERT(expr) \
+  do									     \
+    {									     \
+      if (!(expr))							     \
+	{								     \
+	  fprintf (stderr, "%s:%d: assertion failed\n", __FILE__, __LINE__); \
+	  fflush (stderr);						     \
+	  abort ();							     \
+	}								     \
+    }									     \
+  while (0)
 
 /* Calculating void * + int is not portable, so this wrapper converts
    to char * to make the tests easier to write.  */
 #define MEMRCHR (char *) memrchr
 
 int
-main (void)
+main ()
 {
   size_t n = 0x100000;
   char *input = malloc (n);
@@ -67,7 +79,7 @@ main (void)
     size_t repeat = 10000;
     for (; repeat > 0; repeat--)
       {
-        ASSERT (MEMRCHR (input, 'c', n) == input + n - 3);
+	ASSERT (MEMRCHR (input, 'c', n) == input + n - 3);
       }
   }
 
@@ -76,12 +88,12 @@ main (void)
     int i, j;
     for (i = 0; i < 32; i++)
       {
-        for (j = 0; j < 256; j++)
-          input[i + j] = j;
-        for (j = 0; j < 256; j++)
-          {
-            ASSERT (MEMRCHR (input + i, j, 256) == input + i + j);
-          }
+	for (j = 0; j < 256; j++)
+	  input[i + j] = j;
+	for (j = 0; j < 256; j++)
+	  {
+	    ASSERT (MEMRCHR (input + i, j, 256) == input + i + j);
+	  }
       }
   }
 

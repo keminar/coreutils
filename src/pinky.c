@@ -1,5 +1,5 @@
 /* GNU's pinky.
-   Copyright (C) 1992-2016 Free Software Foundation, Inc.
+   Copyright (C) 1992-1997, 1999-2006, 2008-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -29,13 +29,17 @@
 #include "hard-locale.h"
 #include "readutmp.h"
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "pinky"
 
 #define AUTHORS \
   proper_name ("Joseph Arceneaux"), \
   proper_name ("David MacKenzie"), \
   proper_name ("Kaveh Ghazi")
+
+#ifndef MAXHOSTNAMELEN
+# define MAXHOSTNAMELEN 64
+#endif
 
 char *ttyname (int);
 
@@ -82,7 +86,7 @@ static struct option const longopts[] =
 
 /* Count and return the number of ampersands in STR.  */
 
-static size_t _GL_ATTRIBUTE_PURE
+static size_t
 count_ampersands (const char *str)
 {
   size_t count = 0;
@@ -97,7 +101,7 @@ count_ampersands (const char *str)
 /* Create a string (via xmalloc) which contains a full name by substituting
    for each ampersand in GECOS_NAME the USER_NAME string with its first
    character capitalized.  The caller must ensure that GECOS_NAME contains
-   no ','s.  The caller also is responsible for free'ing the return value of
+   no `,'s.  The caller also is responsible for free'ing the return value of
    this function.  */
 
 static char *
@@ -179,10 +183,10 @@ time_string (const STRUCT_UTMP *utmp_ent)
 
   /* Don't take the address of UT_TIME_MEMBER directly.
      Ulrich Drepper wrote:
-     "... GNU libc (and perhaps other libcs as well) have extended
+     ``... GNU libc (and perhaps other libcs as well) have extended
      utmp file formats which do not use a simple time_t ut_time field.
      In glibc, ut_time is a macro which selects for backward compatibility
-     the tv_sec member of a struct timeval value."  */
+     the tv_sec member of a struct timeval value.''  */
   time_t t = UT_TIME_MEMBER (utmp_ent);
   struct tm *tmp = localtime (&t);
 
@@ -208,14 +212,21 @@ print_entry (const STRUCT_UTMP *utmp_ent)
 #define DEV_DIR_LEN (sizeof (DEV_DIR_WITH_TRAILING_SLASH) - 1)
 
   char line[sizeof (utmp_ent->ut_line) + DEV_DIR_LEN + 1];
-  char *p = line;
 
-  /* Copy ut_line into LINE, prepending '/dev/' if ut_line is not
+  /* Copy ut_line into LINE, prepending `/dev/' if ut_line is not
      already an absolute file name.  Some system may put the full,
      absolute file name in ut_line.  */
-  if ( ! IS_ABSOLUTE_FILE_NAME (utmp_ent->ut_line))
-    p = stpcpy (p, DEV_DIR_WITH_TRAILING_SLASH);
-  stzncpy (p, utmp_ent->ut_line, sizeof (utmp_ent->ut_line));
+  if (utmp_ent->ut_line[0] == '/')
+    {
+      strncpy (line, utmp_ent->ut_line, sizeof (utmp_ent->ut_line));
+      line[sizeof (utmp_ent->ut_line)] = '\0';
+    }
+  else
+    {
+      strcpy (line, DEV_DIR_WITH_TRAILING_SLASH);
+      strncpy (line + DEV_DIR_LEN, utmp_ent->ut_line, sizeof (utmp_ent->ut_line));
+      line[DEV_DIR_LEN + sizeof (utmp_ent->ut_line)] = '\0';
+    }
 
   if (stat (line, &stats) == 0)
     {
@@ -235,7 +246,8 @@ print_entry (const STRUCT_UTMP *utmp_ent)
       struct passwd *pw;
       char name[UT_USER_SIZE + 1];
 
-      stzncpy (name, UT_USER (utmp_ent), UT_USER_SIZE);
+      strncpy (name, UT_USER (utmp_ent), UT_USER_SIZE);
+      name[UT_USER_SIZE] = '\0';
       pw = getpwnam (name);
       if (pw == NULL)
         /* TRANSLATORS: Real name is unknown; at most 19 characters. */
@@ -276,7 +288,8 @@ print_entry (const STRUCT_UTMP *utmp_ent)
       char *display = NULL;
 
       /* Copy the host name into UT_HOST, and ensure it's nul terminated. */
-      stzncpy (ut_host, utmp_ent->ut_host, sizeof (utmp_ent->ut_host));
+      strncpy (ut_host, utmp_ent->ut_host, (int) sizeof (utmp_ent->ut_host));
+      ut_host[sizeof (utmp_ent->ut_host)] = '\0';
 
       /* Look for an X display.  */
       display = strchr (ut_host, ':');
@@ -445,7 +458,8 @@ scan_entries (size_t n, const STRUCT_UTMP *utmp_buf,
               int i;
 
               for (i = 0; i < argc_names; i++)
-                if (STREQ_LEN (UT_USER (utmp_buf), argv_names[i], UT_USER_SIZE))
+                if (strncmp (UT_USER (utmp_buf), argv_names[i], UT_USER_SIZE)
+                    == 0)
                   {
                     print_entry (utmp_buf);
                     break;
@@ -465,14 +479,12 @@ short_pinky (const char *filename,
              const int argc_names, char *const argv_names[])
 {
   size_t n_users;
-  STRUCT_UTMP *utmp_buf = NULL;
+  STRUCT_UTMP *utmp_buf;
 
   if (read_utmp (filename, &n_users, &utmp_buf, 0) != 0)
-    error (EXIT_FAILURE, errno, "%s", quotef (filename));
+    error (EXIT_FAILURE, errno, "%s", filename);
 
   scan_entries (n_users, utmp_buf, argc_names, argv_names);
-
-  IF_LINT (free (utmp_buf));
 }
 
 static void
@@ -488,7 +500,8 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("Usage: %s [OPTION]... [USER]...\n"), program_name);
@@ -511,10 +524,10 @@ usage (int status)
       fputs (VERSION_OPTION_DESCRIPTION, stdout);
       printf (_("\
 \n\
-A lightweight 'finger' program;  print user information.\n\
+A lightweight `finger' program;  print user information.\n\
 The utmp file will be %s.\n\
 "), UTMP_FILE);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
@@ -603,5 +616,5 @@ main (int argc, char **argv)
   else
     long_pinky (n_users, argv + optind);
 
-  return EXIT_SUCCESS;
+  exit (EXIT_SUCCESS);
 }

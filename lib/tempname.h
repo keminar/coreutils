@@ -1,6 +1,6 @@
 /* Create a temporary file or directory.
 
-   Copyright (C) 2006, 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2006, 2007, 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -17,54 +17,26 @@
 
 /* header written by Eric Blake */
 
-#ifndef GL_TEMPNAME_H
-# define GL_TEMPNAME_H
-
-# include <stdio.h>
-
-# ifdef __GT_FILE
-#  define GT_FILE     __GT_FILE
-#  define GT_DIR      __GT_DIR
-#  define GT_NOCREATE __GT_NOCREATE
-# else
-#  define GT_FILE     0
-#  define GT_DIR      1
-#  define GT_NOCREATE 2
-# endif
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+/* In gnulib, always prefer large files.  GT_FILE maps to
+   __GT_BIGFILE, not __GT_FILE, for a reason.  */
+#define GT_FILE		1
+#define GT_DIR		2
+#define GT_NOCREATE	3
 
 /* Generate a temporary file name based on TMPL.  TMPL must match the
-   rules for mk[s]temp (i.e. end in "XXXXXX", possibly with a suffix).
-   The name constructed does not exist at the time of the call to
-   gen_tempname.  TMPL is overwritten with the result.
+   rules for mk[s]temp (i.e. end in "XXXXXX").  The name constructed
+   does not exist at the time of the call to gen_tempname.  TMPL is
+   overwritten with the result.
 
    KIND may be one of:
-   GT_NOCREATE:         simply verify that the name does not exist
+   GT_NOCREATE:		simply verify that the name does not exist
                         at the time of the call.
-   GT_FILE:             create a large file using open(O_CREAT|O_EXCL)
+   GT_FILE:		create a large file using open(O_CREAT|O_EXCL)
                         and return a read-write fd.  The file is mode 0600.
-   GT_DIR:              create a directory, which will be mode 0700.
+   GT_DIR:		create a directory, which will be mode 0700.
 
    We use a clever algorithm to get hard-to-predict names. */
-extern int gen_tempname (char *tmpl, int suffixlen, int flags, int kind);
-extern int gen_tempname_len (char *tmpl, int suffixlen, int flags, int kind,
+#include <stddef.h>
+extern int gen_tempname (char *tmpl, int flags, int kind);
+extern int gen_tempname_len (char *tmpl, int flags, int kind,
                              size_t x_suffix_len);
-
-/* Similar to gen_tempname, but TRYFUNC is called for each temporary
-   name to try.  If TRYFUNC returns a non-negative number, TRY_GEN_TEMPNAME
-   returns with this value.  Otherwise, if errno is set to EEXIST, another
-   name is tried, or else TRY_GEN_TEMPNAME returns -1. */
-extern int try_tempname (char *tmpl, int suffixlen, void *args,
-                         int (*tryfunc) (char *, void *));
-extern int try_tempname_len (char *tmpl, int suffixlen, void *args,
-                             int (*tryfunc) (char *, void *),
-                             size_t x_suffix_len);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* GL_TEMPNAME_H */

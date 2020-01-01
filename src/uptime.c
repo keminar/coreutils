@@ -1,5 +1,5 @@
 /* GNU's uptime.
-   Copyright (C) 1992-2016 Free Software Foundation, Inc.
+   Copyright (C) 1992-2002, 2004-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -38,7 +38,7 @@
 #include "readutmp.h"
 #include "fprintftime.h"
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "uptime"
 
 #define AUTHORS \
@@ -146,12 +146,16 @@ print_uptime (size_t n, const STRUCT_UTMP *this)
                           select_plural (updays)),
                 updays, uphours, upmins);
       else
-        printf (_("up  %2d:%02d,  "), uphours, upmins);
+        printf ("up  %2d:%02d,  ", uphours, upmins);
     }
-  printf (ngettext ("%lu user", "%lu users", select_plural (entries)),
+  printf (ngettext ("%lu user", "%lu users", entries),
           (unsigned long int) entries);
 
+#if defined HAVE_GETLOADAVG || defined C_GETLOADAVG
   loads = getloadavg (avg, 3);
+#else
+  loads = -1;
+#endif
 
   if (loads == -1)
     putchar ('\n');
@@ -176,23 +180,22 @@ static void
 uptime (const char *filename, int options)
 {
   size_t n_users;
-  STRUCT_UTMP *utmp_buf = NULL;
+  STRUCT_UTMP *utmp_buf;
 
 #if HAVE_UTMPX_H || HAVE_UTMP_H
   if (read_utmp (filename, &n_users, &utmp_buf, options) != 0)
-    error (EXIT_FAILURE, errno, "%s", quotef (filename));
+    error (EXIT_FAILURE, errno, "%s", filename);
 #endif
 
   print_uptime (n_users, utmp_buf);
-
-  IF_LINT (free (utmp_buf));
 }
 
 void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("Usage: %s [OPTION]... [FILE]\n"), program_name);
@@ -205,11 +208,11 @@ in the run queue over the last 1, 5 and 15 minutes."));
          but such a test is hard to write.  For the moment then, we
          have a hack which depends on the preprocessor used at compile
          time to tell us what the running kernel is.  Ugh.  */
-      printf (_("  \
+      printf(_("  \
 Processes in\n\
 an uninterruptible sleep state also contribute to the load average.\n"));
 #else
-      printf (_("\n"));
+      printf(_("\n"));
 #endif
       printf (_("\
 If FILE is not specified, use %s.  %s as FILE is common.\n\
@@ -217,7 +220,7 @@ If FILE is not specified, use %s.  %s as FILE is common.\n\
               UTMP_FILE, WTMP_FILE);
       fputs (HELP_OPTION_DESCRIPTION, stdout);
       fputs (VERSION_OPTION_DESCRIPTION, stdout);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
@@ -253,5 +256,5 @@ main (int argc, char **argv)
       usage (EXIT_FAILURE);
     }
 
-  return EXIT_SUCCESS;
+  exit (EXIT_SUCCESS);
 }

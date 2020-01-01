@@ -1,5 +1,5 @@
 /* operand2sig.c -- common function for parsing signal specifications
-   Copyright (C) 2008-2016 Free Software Foundation, Inc.
+   Copyright (C) 2008, 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -24,11 +24,19 @@
 #include <config.h>
 #include <stdio.h>
 #include <sys/types.h>
-#include <sys/wait.h>
+
+#if HAVE_SYS_WAIT_H
+# include <sys/wait.h>
+#endif
+#ifndef WIFSIGNALED
+# define WIFSIGNALED(s) (((s) & 0xFFFF) - 1 < (unsigned int) 0xFF)
+#endif
+#ifndef WTERMSIG
+# define WTERMSIG(s) ((s) & 0x7F)
+#endif
 
 #include "system.h"
 #include "error.h"
-#include "quote.h"
 #include "sig2str.h"
 #include "operand2sig.h"
 
@@ -39,17 +47,6 @@ operand2sig (char const *operand, char *signame)
 
   if (ISDIGIT (*operand))
     {
-      /* Note we don't put a limit on the maximum value passed,
-         because we're checking shell $? values here, and ksh for
-         example will add 256 to the signal value, thus being wider
-         than the number of WEXITSTATUS bits.
-         We could validate that values were not above say
-         ((WEXITSTATUS (~0) << 1) + 1), which would cater for ksh.
-         But some shells may use other adjustments in future to be
-         (forward) compatible with systems that support
-         wider exit status values as discussed at
-         http://austingroupbugs.net/view.php?id=947  */
-
       char *endp;
       long int l = (errno = 0, strtol (operand, &endp, 10));
       int i = l;
@@ -78,7 +75,7 @@ operand2sig (char const *operand, char *signame)
 
   if (signum < 0 || sig2str (signum, signame) != 0)
     {
-      error (0, 0, _("%s: invalid signal"), quote (operand));
+      error (0, 0, _("%s: invalid signal"), operand);
       return -1;
     }
 

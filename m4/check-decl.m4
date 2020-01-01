@@ -1,7 +1,8 @@
-#serial 26
+#serial 24
 # Check declarations for this package.
 
-dnl Copyright (C) 1997-2016 Free Software Foundation, Inc.
+dnl Copyright (C) 1997-2001, 2003-2006, 2008-2009 Free Software
+dnl Foundation, Inc.
 
 dnl This file is free software; the Free Software Foundation
 dnl gives unlimited permission to copy and/or distribute it,
@@ -34,7 +35,15 @@ AC_DEFUN([gl_CHECK_DECLS],
     getpwuid,
     ttyname], , , $headers)
 
+  AC_CHECK_DECLS([isblank], [], [], [#include <ctype.h>])
+
+  AC_CHECK_DECLS_ONCE([free])
+  AC_CHECK_DECLS_ONCE([getenv])
   AC_CHECK_DECLS_ONCE([geteuid])
   AC_CHECK_DECLS_ONCE([getlogin])
   AC_CHECK_DECLS_ONCE([getuid])
+  AC_CHECK_DECLS_ONCE([lseek])
+  AC_CHECK_DECLS_ONCE([malloc])
+  AC_CHECK_DECLS_ONCE([memchr])
+  AC_CHECK_DECLS_ONCE([realloc])
 ])

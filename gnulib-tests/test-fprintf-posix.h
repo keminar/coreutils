@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Test of POSIX compatible vsprintf() and sprintf() functions.
-   Copyright (C) 2007-2016 Free Software Foundation, Inc.
+   Copyright (C) 2007-2008 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -15,8 +18,6 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 /* Written by Bruno Haible <bruno@clisp.org>, 2007.  */
-
-#include "infinity.h"
 
 static void
 test_function (int (*my_fprintf) (FILE *, const char *, ...))
@@ -39,13 +40,13 @@ test_function (int (*my_fprintf) (FILE *, const char *, ...))
   my_fprintf (stdout, "%a %d\n", 0.0, 33, 44, 55);
 
   /* Positive infinity.  */
-  my_fprintf (stdout, "%a %d\n", Infinityd (), 33, 44, 55);
+  my_fprintf (stdout, "%a %d\n", 1.0 / 0.0, 33, 44, 55);
 
   /* Negative infinity.  */
-  my_fprintf (stdout, "%a %d\n", - Infinityd (), 33, 44, 55);
+  my_fprintf (stdout, "%a %d\n", -1.0 / 0.0, 33, 44, 55);
 
   /* FLAG_ZERO with infinite number.  */
-  my_fprintf (stdout, "%010a %d\n", Infinityd (), 33, 44, 55);
+  my_fprintf (stdout, "%010a %d\n", 1.0 / 0.0, 33, 44, 55);
 
   /* Test the support of the %f format directive.  */
 

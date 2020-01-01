@@ -1,6 +1,9 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Test the getaddrinfo module.
 
-   Copyright (C) 2006-2016 Free Software Foundation, Inc.
+   Copyright (C) 2006-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -18,15 +21,7 @@
 /* Written by Simon Josefsson.  */
 
 #include <config.h>
-
 #include <netdb.h>
-
-#include "signature.h"
-SIGNATURE_CHECK (freeaddrinfo, void, (struct addrinfo *));
-SIGNATURE_CHECK (gai_strerror, char const *, (int));
-SIGNATURE_CHECK (getaddrinfo, int, (char const *, char const *,
-                                    struct addrinfo const *,
-                                    struct addrinfo **));
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -52,8 +47,7 @@ SIGNATURE_CHECK (getaddrinfo, int, (char const *, char const *,
 # define EAI_SERVICE 0
 #endif
 
-static int
-simple (char const *host, char const *service)
+int simple (char *host, char *service)
 {
   char buf[BUFSIZ];
   static int skip = 0;
@@ -83,65 +77,62 @@ simple (char const *host, char const *service)
   if (res != 0)
     {
       /* EAI_AGAIN is returned if no network is available. Don't fail
-         the test merely because someone is down the country on their
-         in-law's farm. */
+	 the test merely because someone is down the country on their
+	 in-law's farm. */
       if (res == EAI_AGAIN)
-        {
-          skip++;
-          fprintf (stderr, "skipping getaddrinfo test: no network?\n");
-          return 77;
-        }
+	{
+	  skip++;
+	  fprintf (stderr, "skipping getaddrinfo test: no network?\n");
+	  return 77;
+	}
       /* IRIX reports EAI_NONAME for "https".  Don't fail the test
-         merely because of this.  */
+	 merely because of this.  */
       if (res == EAI_NONAME)
-        return 0;
+	return 0;
       /* Solaris reports EAI_SERVICE for "http" and "https".  Don't
-         fail the test merely because of this.  */
+	 fail the test merely because of this.  */
       if (res == EAI_SERVICE)
-        return 0;
-#ifdef EAI_NODATA
+	return 0;
       /* AIX reports EAI_NODATA for "https".  Don't fail the test
-         merely because of this.  */
+	 merely because of this.  */
       if (res == EAI_NODATA)
-        return 0;
-#endif
+	return 0;
       /* Provide details if errno was set.  */
       if (res == EAI_SYSTEM)
-        fprintf (stderr, "system error: %s\n", strerror (err));
+	dbgprintf ("system error: %s\n", strerror (err));
 
       return 1;
     }
 
   for (ai = ai0; ai; ai = ai->ai_next)
     {
-      void *ai_addr = ai->ai_addr;
-      struct sockaddr_in *sock_addr = ai_addr;
-      dbgprintf ("\tflags %x\n", ai->ai_flags + 0u);
-      dbgprintf ("\tfamily %x\n", ai->ai_family + 0u);
-      dbgprintf ("\tsocktype %x\n", ai->ai_socktype + 0u);
-      dbgprintf ("\tprotocol %x\n", ai->ai_protocol + 0u);
-      dbgprintf ("\taddrlen %lu: ", (unsigned long) ai->ai_addrlen);
+      dbgprintf ("\tflags %x\n", ai->ai_flags);
+      dbgprintf ("\tfamily %x\n", ai->ai_family);
+      dbgprintf ("\tsocktype %x\n", ai->ai_socktype);
+      dbgprintf ("\tprotocol %x\n", ai->ai_protocol);
+      dbgprintf ("\taddrlen %ld: ", (unsigned long) ai->ai_addrlen);
       dbgprintf ("\tFound %s\n",
-                 inet_ntop (ai->ai_family,
-                            &sock_addr->sin_addr,
-                            buf, sizeof (buf) - 1));
+		 inet_ntop (ai->ai_family,
+			    &((struct sockaddr_in *)
+			      ai->ai_addr)->sin_addr,
+			    buf, sizeof (buf) - 1));
       if (ai->ai_canonname)
-        dbgprintf ("\tFound %s...\n", ai->ai_canonname);
+	dbgprintf ("\tFound %s...\n", ai->ai_canonname);
 
       {
-        char ipbuf[BUFSIZ];
-        char portbuf[BUFSIZ];
+	char ipbuf[BUFSIZ];
+	char portbuf[BUFSIZ];
 
-        res = getnameinfo (ai->ai_addr, ai->ai_addrlen,
-                           ipbuf, sizeof (ipbuf) - 1,
-                           portbuf, sizeof (portbuf) - 1,
-                           NI_NUMERICHOST|NI_NUMERICSERV);
-        dbgprintf ("\t\tgetnameinfo %d: %s\n", res, gai_strerror (res));
-        if (res == 0)
-          {
-            dbgprintf ("\t\tip %s\n", ipbuf);
-            dbgprintf ("\t\tport %s\n", portbuf);
-          }
+	res = getnameinfo (ai->ai_addr, ai->ai_addrlen,
+			   ipbuf, sizeof (ipbuf) - 1,
+			   portbuf, sizeof (portbuf) - 1,
+			   NI_NUMERICHOST|NI_NUMERICSERV);
+	dbgprintf ("\t\tgetnameinfo %d: %s\n", res, gai_strerror (res));
+	if (res == 0)
+	  {
+	    dbgprintf ("\t\tip %s\n", ipbuf);
+	    dbgprintf ("\t\tport %s\n", portbuf);
+	  }
       }
 
     }
@@ -162,6 +153,25 @@ simple (char const *host, char const *service)
 
 int main (void)
 {
+#if _WIN32
+  {
+    WORD requested;
+    WSADATA data;
+    int err;
+
+    requested = MAKEWORD (1, 1);
+    err = WSAStartup (requested, &data);
+    if (err != 0)
+      return 1;
+
+    if (data.wVersion < requested)
+      {
+	WSACleanup ();
+	return 2;
+      }
+  }
+#endif
+
   return simple (HOST1, SERV1)
     + simple (HOST2, SERV2)
     + simple (HOST3, SERV3)

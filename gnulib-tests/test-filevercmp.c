@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Test of filevercmp() function.
-   Copyright (C) 2008-2016 Free Software Foundation, Inc.
+   Copyright (C) 2008-2009 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -12,15 +15,27 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program; if not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software Foundation,
+   Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.  */
 
 #include <config.h>
 
 #include "filevercmp.h"
 
-#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
 
-#include "macros.h"
+#define ASSERT(expr) \
+  do									     \
+    {									     \
+      if (!(expr))							     \
+        {								     \
+          fprintf (stderr, "%s:%d: assertion failed\n", __FILE__, __LINE__); \
+          fflush (stderr);						     \
+          abort ();							     \
+        }								     \
+    }									     \
+  while (0)
 
 /* set of well sorted examples */
 static const char *const examples[] =
@@ -85,7 +100,7 @@ static const char *const examples[] =
 };
 
 int
-main (void)
+main (int argc, char **argv)
 {
   const char *const *i;
 
@@ -105,15 +120,15 @@ main (void)
     {
       const char *const *j;
       for (j = examples; *j; j++)
-        {
-          int result = filevercmp (*i, *j);
-          if (result < 0)
-            ASSERT (i < j);
-          else if (0 < result)
-            ASSERT (j < i);
-          else
-            ASSERT (i == j);
-        }
+	{
+	  int result = filevercmp (*i, *j);
+	  if (result < 0)
+	    ASSERT (i < j);
+	  else if (0 < result)
+	    ASSERT (j < i);
+	  else
+	    ASSERT (i == j);
+	}
     }
 
   return 0;

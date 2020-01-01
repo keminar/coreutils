@@ -1,5 +1,5 @@
 /* group-list.c --Print a list of group IDs or names.
-   Copyright (C) 1989-2016 Free Software Foundation, Inc.
+   Copyright (C) 1989-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -35,33 +35,32 @@
 extern bool
 print_group_list (const char *username,
                   uid_t ruid, gid_t rgid, gid_t egid,
-                  bool use_names, char delim)
+                  bool use_names)
 {
   bool ok = true;
-  struct passwd *pwd = NULL;
+  struct passwd *pwd;
 
-  if (username)
-    {
-      pwd = getpwuid (ruid);
-      if (pwd == NULL)
-        ok = false;
-    }
+  pwd = getpwuid (ruid);
+  if (pwd == NULL)
+    ok = false;
 
   if (!print_group (rgid, use_names))
     ok = false;
 
   if (egid != rgid)
     {
-      putchar (delim);
+      putchar (' ');
       if (!print_group (egid, use_names))
         ok = false;
     }
 
+#if HAVE_GETGROUPS
   {
-    gid_t *groups;
+    GETGROUPS_T *groups;
     int i;
 
-    int n_groups = xgetgroups (username, (pwd ? pwd->pw_gid : egid), &groups);
+    int n_groups = mgetgroups (username, (pwd ? pwd->pw_gid : (gid_t) -1),
+                               &groups);
     if (n_groups < 0)
       {
         if (username)
@@ -79,25 +78,16 @@ print_group_list (const char *username,
     for (i = 0; i < n_groups; i++)
       if (groups[i] != rgid && groups[i] != egid)
         {
-          putchar (delim);
+          putchar (' ');
           if (!print_group (groups[i], use_names))
             ok = false;
         }
     free (groups);
   }
+#endif /* HAVE_GETGROUPS */
   return ok;
 }
 
-/* Convert a gid_t to string.  Do not use this function directly.
-   Instead, use it via the gidtostr macro.
-   Beware that it returns a pointer to static storage.  */
-static char *
-gidtostr_ptr (gid_t const *gid)
-{
-  static char buf[INT_BUFSIZE_BOUND (uintmax_t)];
-  return umaxtostr (*gid, buf);
-}
-#define gidtostr(g) gidtostr_ptr (&(g))
 
 /* Print the name or value of group ID GID. */
 extern bool
@@ -117,7 +107,9 @@ print_group (gid_t gid, bool use_name)
         }
     }
 
-  char *s = grp ? grp->gr_name : gidtostr (gid);
-  fputs (s, stdout);
+  if (grp == NULL)
+    printf ("%lu", (unsigned long int) gid);
+  else
+    printf ("%s", grp->gr_name);
   return ok;
 }

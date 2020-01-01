@@ -1,5 +1,4 @@
-/* Copyright (C) 1991, 1994-2002, 2005, 2008-2016 Free Software Foundation,
-   Inc.
+/* Copyright (C) 1991, 1994-2002, 2005, 2008 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    This program is free software: you can redistribute it and/or modify
@@ -19,12 +18,10 @@
 # include <config.h>
 #endif
 
-/* Specification.  */
-#include <string.h>
-
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #ifdef _LIBC
 # include <libintl.h>
@@ -56,9 +53,7 @@ extern const char *const _sys_siglist_internal[] attribute_hidden;
 #else /* !_LIBC */
 
 /* NetBSD declares sys_siglist in unistd.h. */
-# if HAVE_UNISTD_H
-#  include <unistd.h>
-# endif
+# include <unistd.h>
 
 # define INTUSE(x) (x)
 
@@ -80,7 +75,7 @@ static __libc_key_t key;
 
 /* If nonzero the key allocation failed and we should better use a
    static buffer than fail.  */
-#define BUFFERSIZ       100
+#define BUFFERSIZ	100
 static char local_buf[BUFFERSIZ];
 static char *static_buf;
 
@@ -111,16 +106,16 @@ strsignal (int signum)
       int len;
 #ifdef SIGRTMIN
       if (signum >= SIGRTMIN && signum <= SIGRTMAX)
-        len = __snprintf (buffer, BUFFERSIZ - 1, _("Real-time signal %d"),
-                          signum - (int) SIGRTMIN);
+	len = __snprintf (buffer, BUFFERSIZ - 1, _("Real-time signal %d"),
+			  signum - SIGRTMIN);
       else
 #endif
-        len = __snprintf (buffer, BUFFERSIZ - 1, _("Unknown signal %d"),
-                          signum);
+	len = __snprintf (buffer, BUFFERSIZ - 1, _("Unknown signal %d"),
+			  signum);
       if (len >= BUFFERSIZ)
-        buffer = NULL;
+	buffer = NULL;
       else
-        buffer[len] = '\0';
+	buffer[len] = '\0';
 
       return buffer;
     }
@@ -182,18 +177,18 @@ getbuffer (void)
   else
     {
       /* We don't use the static buffer and so we have a key.  Use it
-         to get the thread-specific buffer.  */
+	 to get the thread-specific buffer.  */
       result = __libc_getspecific (key);
       if (result == NULL)
-        {
-          /* No buffer allocated so far.  */
-          result = malloc (BUFFERSIZ);
-          if (result == NULL)
-            /* No more memory available.  We use the static buffer.  */
-            result = local_buf;
-          else
-            __libc_setspecific (key, result);
-        }
+	{
+	  /* No buffer allocated so far.  */
+	  result = malloc (BUFFERSIZ);
+	  if (result == NULL)
+	    /* No more memory available.  We use the static buffer.  */
+	    result = local_buf;
+	  else
+	    __libc_setspecific (key, result);
+	}
     }
 
   return result;

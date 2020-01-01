@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Tests of linkat.
-   Copyright (C) 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -20,22 +23,29 @@
 
 #include <unistd.h>
 
-#include "signature.h"
-SIGNATURE_CHECK (linkat, int, (int, char const *, int, char const *, int));
-
 #include <fcntl.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 
 #include "areadlink.h"
 #include "filenamecat.h"
 #include "same-inode.h"
-#include "ignore-value.h"
-#include "macros.h"
+#include "xgetcwd.h"
+
+#define ASSERT(expr) \
+  do                                                                         \
+    {                                                                        \
+      if (!(expr))                                                           \
+	{                                                                    \
+	  fprintf (stderr, "%s:%d: assertion failed\n", __FILE__, __LINE__);  \
+	  fflush (stderr);                                                   \
+	  abort ();                                                          \
+	}                                                                    \
+    }                                                                        \
+  while (0)
 
 #define BASE "test-linkat.t"
 
@@ -52,17 +62,6 @@ do_link (char const *name1, char const *name2)
   return linkat (dfd1, name1, dfd2, name2, flag);
 }
 
-/* Can we expect that link() and linkat(), when called on a symlink,
-   increment the link count of that symlink?  */
-#if LINK_FOLLOWS_SYMLINKS == 0
-# define EXPECT_LINK_HARDLINKS_SYMLINKS 1
-#elif LINK_FOLLOWS_SYMLINKS == -1
-extern int __xpg4;
-# define EXPECT_LINK_HARDLINKS_SYMLINKS (__xpg4 == 0)
-#else
-# define EXPECT_LINK_HARDLINKS_SYMLINKS 0
-#endif
-
 /* Wrapper to see if two symlinks act the same.  */
 static void
 check_same_link (char const *name1, char const *name2)
@@ -78,14 +77,14 @@ check_same_link (char const *name1, char const *name2)
   ASSERT (contents1);
   ASSERT (contents2);
   ASSERT (strcmp (contents1, contents2) == 0);
-  if (EXPECT_LINK_HARDLINKS_SYMLINKS)
+  if (!LINK_FOLLOWS_SYMLINKS)
     ASSERT (SAME_INODE (st1, st2));
   free (contents1);
   free (contents2);
 }
 
 int
-main (void)
+main ()
 {
   int i;
   int dfd;
@@ -93,35 +92,10 @@ main (void)
   int result;
 
   /* Clean up any trash from prior testsuite runs.  */
-  ignore_value (system ("rm -rf " BASE "*"));
-
-  /* Test behaviour for invalid file descriptors.  */
-  {
-    errno = 0;
-    ASSERT (linkat (-1, "foo", AT_FDCWD, "bar", 0) == -1);
-    ASSERT (errno == EBADF);
-  }
-  {
-    close (99);
-    errno = 0;
-    ASSERT (linkat (99, "foo", AT_FDCWD, "bar", 0) == -1);
-    ASSERT (errno == EBADF);
-  }
-  ASSERT (close (creat (BASE "oo", 0600)) == 0);
-  {
-    errno = 0;
-    ASSERT (linkat (AT_FDCWD, BASE "oo", -1, "bar", 0) == -1);
-    ASSERT (errno == EBADF);
-  }
-  {
-    errno = 0;
-    ASSERT (linkat (AT_FDCWD, BASE "oo", 99, "bar", 0) == -1);
-    ASSERT (errno == EBADF);
-  }
-  ASSERT (unlink (BASE "oo") == 0);
+  ASSERT (system ("rm -rf " BASE "*") == 0);
 
   /* Test basic link functionality, without mentioning symlinks.  */
-  result = test_link (do_link, true);
+  result = test_link (do_link, false);
   dfd1 = open (".", O_RDONLY);
   ASSERT (0 <= dfd1);
   ASSERT (test_link (do_link, false) == result);
@@ -143,8 +117,7 @@ main (void)
   ASSERT (mkdir (BASE "sub1", 0700) == 0);
   ASSERT (mkdir (BASE "sub2", 0700) == 0);
   ASSERT (close (creat (BASE "00", 0600)) == 0);
-  cwd = getcwd (NULL, 0);
-  ASSERT (cwd);
+  cwd = xgetcwd ();
 
   dfd = open (BASE "sub1", O_RDONLY);
   ASSERT (0 <= dfd);
@@ -164,13 +137,11 @@ main (void)
      do the other variant after the loop.  */
   for (i = 0; i < 32; i++)
     {
+      int flag = (i & 0x10 ? AT_SYMLINK_FOLLOW : 0);
       int fd1 = (i & 8) ? dfd : AT_FDCWD;
-      char *file1 = mfile_name_concat ((i & 4) ? ".." : cwd, BASE "xx", NULL);
+      char *file1 = file_name_concat ((i & 4) ? ".." : cwd, BASE "xx", NULL);
       int fd2 = (i & 2) ? dfd : AT_FDCWD;
-      char *file2 = mfile_name_concat ((i & 1) ? ".." : cwd, BASE "xx", NULL);
-      ASSERT (file1);
-      ASSERT (file2);
-      flag = (i & 0x10 ? AT_SYMLINK_FOLLOW : 0);
+      char *file2 = file_name_concat ((i & 1) ? ".." : cwd, BASE "xx", NULL);
 
       ASSERT (sprintf (strchr (file1, '\0') - 2, "%02d", i) == 2);
       ASSERT (sprintf (strchr (file2, '\0') - 2, "%02d", i + 1) == 2);
@@ -198,9 +169,8 @@ main (void)
       ASSERT (rmdir (BASE "sub1") == 0);
       ASSERT (rmdir (BASE "sub2") == 0);
       free (cwd);
-      if (!result)
-        fputs ("skipping test: symlinks not supported on this file system\n",
-               stderr);
+      fputs ("skipping test: symlinks not supported on this filesystem\n",
+             stderr);
       return result;
     }
   dfd = open (".", O_RDONLY);
@@ -218,7 +188,7 @@ main (void)
   ASSERT (errno == EEXIST || errno == EPERM || errno == EACCES);
   errno = 0;
   ASSERT (linkat (dfd, BASE "link1", dfd, BASE "sub1/", 0) == -1);
-  ASSERT (errno == EEXIST || errno == ENOTDIR);
+  ASSERT (errno == EEXIST);
   errno = 0;
   ASSERT (linkat (dfd, BASE "link1", dfd, BASE "sub1",
                   AT_SYMLINK_FOLLOW) == -1);
@@ -226,13 +196,11 @@ main (void)
   errno = 0;
   ASSERT (linkat (dfd, BASE "link1/", dfd, BASE "sub1",
                   AT_SYMLINK_FOLLOW) == -1);
-  ASSERT (errno == EEXIST || errno == EPERM || errno == EACCES
-          || errno == EINVAL);
+  ASSERT (errno == EEXIST || errno == EPERM || errno == EACCES);
   errno = 0;
   ASSERT (linkat (dfd, BASE "link1", dfd, BASE "sub1/",
                   AT_SYMLINK_FOLLOW) == -1);
-  ASSERT (errno == EEXIST || errno == EPERM || errno == EACCES
-          || errno == EINVAL);
+  ASSERT (errno == EEXIST || errno == EPERM || errno == EACCES);
   errno = 0;
   ASSERT (linkat (dfd, BASE "link1", dfd, BASE "link2", 0) == -1);
   ASSERT (errno == EEXIST);
@@ -277,21 +245,21 @@ main (void)
   errno = 0;
   ASSERT (linkat (dfd, BASE "link2/", dfd, BASE "link5",
                   AT_SYMLINK_FOLLOW) == -1);
-  ASSERT (errno == ENOTDIR || errno == EINVAL);
+  ASSERT (errno == ENOTDIR);
   errno = 0;
   ASSERT (linkat (dfd, BASE "link3/", dfd, BASE "link5", 0) == -1);
   ASSERT (errno == ELOOP);
   errno = 0;
   ASSERT (linkat (dfd, BASE "link3/", dfd, BASE "link5",
                   AT_SYMLINK_FOLLOW) == -1);
-  ASSERT (errno == ELOOP || errno == EINVAL);
+  ASSERT (errno == ELOOP);
   errno = 0;
   ASSERT (linkat (dfd, BASE "link4/", dfd, BASE "link5", 0) == -1);
   ASSERT (errno == ENOENT);
   errno = 0;
   ASSERT (linkat (dfd, BASE "link4/", dfd, BASE "link5",
                   AT_SYMLINK_FOLLOW) == -1);
-  ASSERT (errno == ENOENT || errno == EINVAL);
+  ASSERT (errno == ENOENT);
 
   /* Check for hard links to symlinks.  */
   ASSERT (linkat (dfd, BASE "link1", dfd, BASE "link5", 0) == 0);

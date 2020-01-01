@@ -1,5 +1,6 @@
 /* echo.c, derived from code echo.c in Bash.
-   Copyright (C) 1987-2016 Free Software Foundation, Inc.
+   Copyright (C) 87,89, 1991-1997, 1999-2005, 2007-2009 Free Software
+   Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -19,7 +20,7 @@
 #include <sys/types.h>
 #include "system.h"
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "echo"
 
 #define AUTHORS \
@@ -35,7 +36,8 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("\
@@ -61,25 +63,21 @@ Echo the STRING(s) to standard output.\n\
 \n\
 If -e is in effect, the following sequences are recognized:\n\
 \n\
+  \\0NNN   the character whose ASCII code is NNN (octal)\n\
+  \\\\     backslash\n\
+  \\a     alert (BEL)\n\
+  \\b     backspace\n\
 "), stdout);
       fputs (_("\
-  \\\\      backslash\n\
-  \\a      alert (BEL)\n\
-  \\b      backspace\n\
-  \\c      produce no further output\n\
-  \\e      escape\n\
-  \\f      form feed\n\
-  \\n      new line\n\
-  \\r      carriage return\n\
-  \\t      horizontal tab\n\
-  \\v      vertical tab\n\
-"), stdout);
-      fputs (_("\
-  \\0NNN   byte with octal value NNN (1 to 3 digits)\n\
-  \\xHH    byte with hexadecimal value HH (1 to 2 digits)\n\
+  \\c     produce no further output\n\
+  \\f     form feed\n\
+  \\n     new line\n\
+  \\r     carriage return\n\
+  \\t     horizontal tab\n\
+  \\v     vertical tab\n\
 "), stdout);
       printf (USAGE_BUILTIN_WARNING, PROGRAM_NAME);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
@@ -101,7 +99,7 @@ hextobin (unsigned char c)
 }
 
 /* Print the words in LIST to standard output.  If the first word is
-   '-n', then don't print a trailing newline.  We also support the
+   `-n', then don't print a trailing newline.  We also support the
    echo syntax from Version 9 unix systems. */
 
 int
@@ -136,7 +134,7 @@ main (int argc, char **argv)
         {
           version_etc (stdout, PROGRAM_NAME, PACKAGE_NAME, Version, AUTHORS,
                        (char *) NULL);
-          return EXIT_SUCCESS;
+          exit (EXIT_SUCCESS);
         }
     }
 
@@ -204,8 +202,7 @@ just_echo:
                     {
                     case 'a': c = '\a'; break;
                     case 'b': c = '\b'; break;
-                    case 'c': return EXIT_SUCCESS;
-                    case 'e': c = '\x1B'; break;
+                    case 'c': exit (EXIT_SUCCESS);
                     case 'f': c = '\f'; break;
                     case 'n': c = '\n'; break;
                     case 'r': c = '\r'; break;
@@ -268,5 +265,5 @@ just_echo:
 
   if (display_return)
     putchar ('\n');
-  return EXIT_SUCCESS;
+  exit (EXIT_SUCCESS);
 }

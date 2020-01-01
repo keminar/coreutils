@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Creating and controlling threads.
-   Copyright (C) 2005-2016 Free Software Foundation, Inc.
+   Copyright (C) 2005-2008 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -12,7 +15,8 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program; if not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software Foundation,
+   Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.  */
 
 /* Written by Bruno Haible <bruno@clisp.org>, 2005.
    Based on GCC's gthr-posix.h, gthr-posix95.h, gthr-solaris.h,
@@ -21,7 +25,6 @@
 #include <config.h>
 
 /* Specification.  */
-# define _GLTHREAD_THREAD_INLINE _GL_EXTERN_INLINE
 #include "glthread/thread.h"
 
 #include <stdlib.h>
@@ -29,21 +32,7 @@
 
 /* ========================================================================= */
 
-#if USE_POSIX_THREADS
-
-#include <pthread.h>
-
-#ifdef PTW32_VERSION
-
-const gl_thread_t gl_null_thread /* = { .p = NULL } */;
-
-#endif
-
-#endif
-
-/* ========================================================================= */
-
-#if USE_WINDOWS_THREADS
+#if USE_WIN32_THREADS
 
 #include <process.h>
 
@@ -86,7 +75,7 @@ struct gl_thread_struct
 };
 
 /* Return a real HANDLE object for the current thread.  */
-static HANDLE
+static inline HANDLE
 get_current_thread_handle (void)
 {
   HANDLE this_handle;
@@ -94,8 +83,8 @@ get_current_thread_handle (void)
   /* GetCurrentThread() returns a pseudo-handle, i.e. only a symbolic
      identifier, not a real handle.  */
   if (!DuplicateHandle (GetCurrentProcess (), GetCurrentThread (),
-                        GetCurrentProcess (), &this_handle,
-                        0, FALSE, DUPLICATE_SAME_ACCESS))
+			GetCurrentProcess (), &this_handle,
+			0, FALSE, DUPLICATE_SAME_ACCESS))
     abort ();
   return this_handle;
 }
@@ -111,18 +100,18 @@ gl_thread_self_func (void)
   if (thread == NULL)
     {
       /* This happens only in threads that have not been created through
-         glthread_create(), such as the main thread.  */
+	 glthread_create(), such as the main thread.  */
       for (;;)
-        {
-          thread =
-            (struct gl_thread_struct *)
-            malloc (sizeof (struct gl_thread_struct));
-          if (thread != NULL)
-            break;
-          /* Memory allocation failed.  There is not much we can do.  Have to
-             busy-loop, waiting for the availability of memory.  */
-          Sleep (1);
-        }
+	{
+	  thread =
+	    (struct gl_thread_struct *)
+	    malloc (sizeof (struct gl_thread_struct));
+	  if (thread != NULL)
+	    break;
+	  /* Memory allocation failed.  There is not much we can do.  Have to
+	     busy-loop, waiting for the availability of memory.  */
+	  Sleep (1);
+	}
 
       thread->handle = get_current_thread_handle ();
       InitializeCriticalSection (&thread->handle_lock);
@@ -178,9 +167,9 @@ glthread_create_func (gl_thread_t *threadp, void * (*func) (void *), void *arg)
       /* calls CreateThread with the same arguments */
     if (thread_handle == NULL)
       {
-        DeleteCriticalSection (&thread->handle_lock);
-        free (thread);
-        return EAGAIN;
+	DeleteCriticalSection (&thread->handle_lock);
+	free (thread);
+	return EAGAIN;
       }
 
     EnterCriticalSection (&thread->handle_lock);

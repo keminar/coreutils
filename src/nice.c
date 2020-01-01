@@ -1,5 +1,5 @@
 /* nice -- run a program with modified niceness
-   Copyright (C) 1990-2016 Free Software Foundation, Inc.
+   Copyright (C) 1990-2005, 2007-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -30,10 +30,11 @@
 #endif
 
 #include "error.h"
+#include "long-options.h"
 #include "quote.h"
 #include "xstrtol.h"
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "nice"
 
 #define AUTHORS proper_name ("David MacKenzie")
@@ -57,8 +58,6 @@
 static struct option const longopts[] =
 {
   {"adjustment", required_argument, NULL, 'n'},
-  {GETOPT_HELP_OPTION_DECL},
-  {GETOPT_VERSION_OPTION_DECL},
   {NULL, 0, NULL, 0}
 };
 
@@ -66,34 +65,25 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("Usage: %s [OPTION] [COMMAND [ARG]...]\n"), program_name);
       printf (_("\
 Run COMMAND with an adjusted niceness, which affects process scheduling.\n\
-With no COMMAND, print the current niceness.  Niceness values range from\n\
-%d (most favorable to the process) to %d (least favorable to the process).\n\
+With no COMMAND, print the current niceness.  Nicenesses range from\n\
+%d (most favorable scheduling) to %d (least favorable).\n\
+\n\
+  -n, --adjustment=N   add integer N to the niceness (default 10)\n\
 "),
               - NZERO, NZERO - 1);
-
-      emit_mandatory_arg_note ();
-
-      fputs (_("\
-  -n, --adjustment=N   add integer N to the niceness (default 10)\n\
-"), stdout);
       fputs (HELP_OPTION_DESCRIPTION, stdout);
       fputs (VERSION_OPTION_DESCRIPTION, stdout);
       printf (USAGE_BUILTIN_WARNING, PROGRAM_NAME);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
-}
-
-static bool
-perm_related_errno (int err)
-{
-  return err == EACCES || err == EPERM;
 }
 
 int
@@ -111,8 +101,11 @@ main (int argc, char **argv)
   bindtextdomain (PACKAGE, LOCALEDIR);
   textdomain (PACKAGE);
 
-  initialize_exit_failure (EXIT_CANCELED);
+  initialize_exit_failure (EXIT_FAILURE);
   atexit (close_stdout);
+
+  parse_long_options (argc, argv, PROGRAM_NAME, PACKAGE_NAME, Version,
+                      usage, AUTHORS, (char const *) NULL);
 
   for (i = 1; i < argc; /* empty */)
     {
@@ -125,7 +118,7 @@ main (int argc, char **argv)
         }
       else
         {
-          int c;
+          int optc;
           int fake_argc = argc - (i - 1);
           char **fake_argv = argv + (i - 1);
 
@@ -135,28 +128,14 @@ main (int argc, char **argv)
           /* Initialize getopt_long's internal state.  */
           optind = 0;
 
-          c = getopt_long (fake_argc, fake_argv, "+n:", longopts, NULL);
+          optc = getopt_long (fake_argc, fake_argv, "+n:", longopts, NULL);
           i += optind - 1;
 
-          switch (c)
-            {
-            case 'n':
-              adjustment_given = optarg;
-              break;
-
-            case -1:
-              break;
-
-            case_GETOPT_HELP_CHAR;
-
-            case_GETOPT_VERSION_CHAR (PROGRAM_NAME, AUTHORS);
-
-            default:
-              usage (EXIT_CANCELED);
-              break;
-            }
-
-          if (c == -1)
+          if (optc == '?')
+            usage (EXIT_FAILURE);
+          else if (optc == 'n')
+            adjustment_given = optarg;
+          else /* optc == -1 */
             break;
         }
     }
@@ -169,7 +148,7 @@ main (int argc, char **argv)
       enum { MIN_ADJUSTMENT = 1 - 2 * NZERO, MAX_ADJUSTMENT = 2 * NZERO - 1 };
       long int tmp;
       if (LONGINT_OVERFLOW < xstrtol (adjustment_given, NULL, 10, &tmp, ""))
-        error (EXIT_CANCELED, 0, _("invalid adjustment %s"),
+        error (EXIT_FAILURE, 0, _("invalid adjustment %s"),
                quote (adjustment_given));
       adjustment = MAX (MIN_ADJUSTMENT, MIN (tmp, MAX_ADJUSTMENT));
     }
@@ -179,15 +158,15 @@ main (int argc, char **argv)
       if (adjustment_given)
         {
           error (0, 0, _("a command must be given with an adjustment"));
-          usage (EXIT_CANCELED);
+          usage (EXIT_FAILURE);
         }
       /* No command given; print the niceness.  */
       errno = 0;
       current_niceness = GET_NICENESS ();
       if (current_niceness == -1 && errno != 0)
-        error (EXIT_CANCELED, errno, _("cannot get niceness"));
+        error (EXIT_FAILURE, errno, _("cannot get niceness"));
       printf ("%d\n", current_niceness);
-      return EXIT_SUCCESS;
+      exit (EXIT_SUCCESS);
     }
 
   errno = 0;
@@ -196,25 +175,17 @@ main (int argc, char **argv)
 #else
   current_niceness = GET_NICENESS ();
   if (current_niceness == -1 && errno != 0)
-    error (EXIT_CANCELED, errno, _("cannot get niceness"));
+    error (EXIT_FAILURE, errno, _("cannot get niceness"));
   ok = (setpriority (PRIO_PROCESS, 0, current_niceness + adjustment) == 0);
 #endif
   if (!ok)
-    {
-      error (perm_related_errno (errno) ? 0
-             : EXIT_CANCELED, errno, _("cannot set niceness"));
-      /* error() flushes stderr, but does not check for write failure.
-         Normally, we would catch this via our atexit() hook of
-         close_stdout, but execvp() gets in the way.  If stderr
-         encountered a write failure, there is no need to try calling
-         error() again.  */
-      if (ferror (stderr))
-        return EXIT_CANCELED;
-    }
+    error (errno == EPERM ? 0 : EXIT_FAILURE, errno, _("cannot set niceness"));
 
   execvp (argv[i], &argv[i]);
 
-  int exit_status = errno == ENOENT ? EXIT_ENOENT : EXIT_CANNOT_INVOKE;
-  error (0, errno, "%s", quote (argv[i]));
-  return exit_status;
+  {
+    int exit_status = (errno == ENOENT ? EXIT_ENOENT : EXIT_CANNOT_INVOKE);
+    error (0, errno, "%s", argv[i]);
+    exit (exit_status);
+  }
 }

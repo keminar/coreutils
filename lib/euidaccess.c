@@ -1,7 +1,7 @@
 /* euidaccess -- check if effective user id can access file
 
-   Copyright (C) 1990-1991, 1995, 1998, 2000, 2003-2006, 2008-2016 Free
-   Software Foundation, Inc.
+   Copyright (C) 1990, 1991, 1995, 1998, 2000, 2003, 2004, 2005, 2006,
+   2008, 2009 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -29,8 +29,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
-
-#include "root-uid.h"
 
 #if HAVE_LIBGEN_H
 # include <libgen.h>
@@ -65,10 +63,14 @@
 # undef stat
 # define stat stat64
 
+#else
+
+# include "group-member.h"
+
 #endif
 
 /* Return 0 if the user has permission of type MODE on FILE;
-   otherwise, return -1 and set 'errno'.
+   otherwise, return -1 and set `errno'.
    Like access, except that it uses the effective user and group
    id's instead of the real ones, and it does not always check for read-only
    file system, text busy, etc.  */
@@ -76,15 +78,15 @@
 int
 euidaccess (const char *file, int mode)
 {
-#if HAVE_FACCESSAT                   /* glibc, AIX 7, Solaris 11, Cygwin 1.7 */
+#if HAVE_FACCESSAT
   return faccessat (AT_FDCWD, file, mode, AT_EACCESS);
-#elif defined EFF_ONLY_OK               /* IRIX, OSF/1, Interix */
+#elif defined EFF_ONLY_OK
   return access (file, mode | EFF_ONLY_OK);
-#elif defined ACC_SELF                  /* AIX */
+#elif defined ACC_SELF
   return accessx (file, mode, ACC_SELF);
-#elif HAVE_EACCESS                      /* FreeBSD */
+#elif HAVE_EACCESS
   return eaccess (file, mode);
-#else       /* Mac OS X, NetBSD, OpenBSD, HP-UX, Solaris, Cygwin, mingw, BeOS */
+#else
 
   uid_t uid = getuid ();
   gid_t gid = getgid ();
@@ -109,18 +111,18 @@ euidaccess (const char *file, int mode)
       int saved_errno;
 
       if (uid != euid)
-        setreuid (euid, uid);
+	setreuid (euid, uid);
       if (gid != egid)
-        setregid (egid, gid);
+	setregid (egid, gid);
 
       result = access (file, mode);
       saved_errno = errno;
 
       /* Restore them.  */
       if (uid != euid)
-        setreuid (uid, euid);
+	setreuid (uid, euid);
       if (gid != egid)
-        setregid (gid, egid);
+	setregid (gid, egid);
 
       errno = saved_errno;
       return result;
@@ -142,9 +144,8 @@ euidaccess (const char *file, int mode)
 
   /* The super-user can read and write any file, and execute any file
      that anyone can execute.  */
-  if (euid == ROOT_UID
-      && ((mode & X_OK) == 0
-          || (stats.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH))))
+  if (euid == 0 && ((mode & X_OK) == 0
+		    || (stats.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH))))
     return 0;
 
   /* Convert the mode to traditional form, clearing any bogus bits.  */
@@ -152,11 +153,11 @@ euidaccess (const char *file, int mode)
     mode &= 7;
   else
     mode = ((mode & R_OK ? 4 : 0)
-            + (mode & W_OK ? 2 : 0)
-            + (mode & X_OK ? 1 : 0));
+	    + (mode & W_OK ? 2 : 0)
+	    + (mode & X_OK ? 1 : 0));
 
   if (mode == 0)
-    return 0;                   /* The file exists.  */
+    return 0;			/* The file exists.  */
 
   /* Convert the file's permission bits to traditional form.  */
   if (S_IRUSR == (4 << 6) && S_IWUSR == (2 << 6) && S_IXUSR == (1 << 6)
@@ -165,14 +166,14 @@ euidaccess (const char *file, int mode)
     granted = stats.st_mode;
   else
     granted = ((stats.st_mode & S_IRUSR ? 4 << 6 : 0)
-               + (stats.st_mode & S_IWUSR ? 2 << 6 : 0)
-               + (stats.st_mode & S_IXUSR ? 1 << 6 : 0)
-               + (stats.st_mode & S_IRGRP ? 4 << 3 : 0)
-               + (stats.st_mode & S_IWGRP ? 2 << 3 : 0)
-               + (stats.st_mode & S_IXGRP ? 1 << 3 : 0)
-               + (stats.st_mode & S_IROTH ? 4 << 0 : 0)
-               + (stats.st_mode & S_IWOTH ? 2 << 0 : 0)
-               + (stats.st_mode & S_IXOTH ? 1 << 0 : 0));
+	       + (stats.st_mode & S_IWUSR ? 2 << 6 : 0)
+	       + (stats.st_mode & S_IXUSR ? 1 << 6 : 0)
+	       + (stats.st_mode & S_IRGRP ? 4 << 3 : 0)
+	       + (stats.st_mode & S_IWGRP ? 2 << 3 : 0)
+	       + (stats.st_mode & S_IXGRP ? 1 << 3 : 0)
+	       + (stats.st_mode & S_IROTH ? 4 << 0 : 0)
+	       + (stats.st_mode & S_IWOTH ? 2 << 0 : 0)
+	       + (stats.st_mode & S_IXOTH ? 1 << 0 : 0));
 
   if (euid == stats.st_uid)
     granted >>= 6;

@@ -1,5 +1,5 @@
 /* nohup -- run a command immune to hangups, with output to a non-tty
-   Copyright (C) 2003-2016 Free Software Foundation, Inc.
+   Copyright (C) 2003, 2004, 2005, 2007-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -29,6 +29,7 @@
 #include "filenamecat.h"
 #include "fd-reopen.h"
 #include "long-options.h"
+#include "quote.h"
 #include "unistd--.h"
 
 #define PROGRAM_NAME "nohup"
@@ -38,15 +39,16 @@
 /* Exit statuses.  */
 enum
   {
-    /* 'nohup' itself failed.  */
-    POSIX_NOHUP_FAILURE = 127
+    /* `nohup' itself failed.  */
+    NOHUP_FAILURE = 127
   };
 
 void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("\
@@ -62,14 +64,14 @@ Run COMMAND, ignoring hangup signals.\n\
       fputs (HELP_OPTION_DESCRIPTION, stdout);
       fputs (VERSION_OPTION_DESCRIPTION, stdout);
       printf (_("\n\
-If standard input is a terminal, redirect it from an unreadable file.\n\
-If standard output is a terminal, append output to 'nohup.out' if possible,\n\
-'$HOME/nohup.out' otherwise.\n\
+If standard input is a terminal, redirect it from /dev/null.\n\
+If standard output is a terminal, append output to `nohup.out' if possible,\n\
+`$HOME/nohup.out' otherwise.\n\
 If standard error is a terminal, redirect it to standard output.\n\
-To save output to FILE, use '%s COMMAND > FILE'.\n"),
+To save output to FILE, use `%s COMMAND > FILE'.\n"),
               program_name);
       printf (USAGE_BUILTIN_WARNING, PROGRAM_NAME);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
@@ -83,7 +85,6 @@ main (int argc, char **argv)
   bool redirecting_stdout;
   bool stdout_is_closed;
   bool redirecting_stderr;
-  int exit_internal_failure;
 
   initialize_main (&argc, &argv);
   set_program_name (argv[0]);
@@ -91,24 +92,18 @@ main (int argc, char **argv)
   bindtextdomain (PACKAGE, LOCALEDIR);
   textdomain (PACKAGE);
 
-  /* POSIX 2008 requires that internal failure give status 127; unlike
-     for env, exec, nice, time, and xargs where it requires internal
-     failure give something in the range 1-125.  For consistency with
-     other tools, fail with EXIT_CANCELED unless POSIXLY_CORRECT.  */
-  exit_internal_failure = (getenv ("POSIXLY_CORRECT")
-                           ? POSIX_NOHUP_FAILURE : EXIT_CANCELED);
-  initialize_exit_failure (exit_internal_failure);
+  initialize_exit_failure (NOHUP_FAILURE);
   atexit (close_stdout);
 
   parse_long_options (argc, argv, PROGRAM_NAME, PACKAGE_NAME, Version,
                       usage, AUTHORS, (char const *) NULL);
   if (getopt_long (argc, argv, "+", NULL, NULL) != -1)
-    usage (exit_internal_failure);
+    usage (NOHUP_FAILURE);
 
   if (argc <= optind)
     {
       error (0, 0, _("missing operand"));
-      usage (exit_internal_failure);
+      usage (NOHUP_FAILURE);
     }
 
   ignoring_input = isatty (STDIN_FILENO);
@@ -121,9 +116,7 @@ main (int argc, char **argv)
      to ensure any read evokes an error.  */
   if (ignoring_input)
     {
-      if (fd_reopen (STDIN_FILENO, "/dev/null", O_WRONLY, 0) < 0)
-        error (exit_internal_failure, errno,
-               _("failed to render standard input unusable"));
+      fd_reopen (STDIN_FILENO, "/dev/null", O_WRONLY, 0);
       if (!redirecting_stdout && !redirecting_stderr)
         error (0, 0, _("ignoring input"));
     }
@@ -157,11 +150,11 @@ main (int argc, char **argv)
           if (out_fd < 0)
             {
               int saved_errno2 = errno;
-              error (0, saved_errno, _("failed to open %s"), quoteaf (file));
+              error (0, saved_errno, _("failed to open %s"), quote (file));
               if (in_home)
                 error (0, saved_errno2, _("failed to open %s"),
-                       quoteaf (in_home));
-              return exit_internal_failure;
+                       quote (in_home));
+              exit (NOHUP_FAILURE);
             }
           file = in_home;
         }
@@ -171,7 +164,7 @@ main (int argc, char **argv)
              _(ignoring_input
                ? N_("ignoring input and appending output to %s")
                : N_("appending output to %s")),
-             quoteaf (file));
+             quote (file));
       free (in_home);
     }
 
@@ -186,7 +179,7 @@ main (int argc, char **argv)
 
       if (0 <= saved_stderr_fd
           && set_cloexec_flag (saved_stderr_fd, true) != 0)
-        error (exit_internal_failure, errno,
+        error (NOHUP_FAILURE, errno,
                _("failed to set the copy of stderr to close on exec"));
 
       if (!redirecting_stdout)
@@ -196,37 +189,32 @@ main (int argc, char **argv)
                  : N_("redirecting stderr to stdout")));
 
       if (dup2 (out_fd, STDERR_FILENO) < 0)
-        error (exit_internal_failure, errno,
-               _("failed to redirect standard error"));
+        error (NOHUP_FAILURE, errno, _("failed to redirect standard error"));
 
       if (stdout_is_closed)
         close (out_fd);
     }
 
-  /* error() flushes stderr, but does not check for write failure.
-     Normally, we would catch this via our atexit() hook of
-     close_stdout, but execvp() gets in the way.  If stderr
-     encountered a write failure, there is no need to try calling
-     error() again, particularly since we may have just changed the
-     underlying fd out from under stderr.  */
-  if (ferror (stderr))
-    return exit_internal_failure;
-
   signal (SIGHUP, SIG_IGN);
 
-  char **cmd = argv + optind;
-  execvp (*cmd, cmd);
-  int exit_status = errno == ENOENT ? EXIT_ENOENT : EXIT_CANNOT_INVOKE;
-  int saved_errno = errno;
+  {
+    int exit_status;
+    int saved_errno;
+    char **cmd = argv + optind;
 
-  /* The execve failed.  Output a diagnostic to stderr only if:
-     - stderr was initially redirected to a non-tty, or
-     - stderr was initially directed to a tty, and we
-     can dup2 it to point back to that same tty.
-     In other words, output the diagnostic if possible, but only if
-     it will go to the original stderr.  */
-  if (dup2 (saved_stderr_fd, STDERR_FILENO) == STDERR_FILENO)
-    error (0, saved_errno, _("failed to run command %s"), quoteaf (*cmd));
+    execvp (*cmd, cmd);
+    exit_status = (errno == ENOENT ? EXIT_ENOENT : EXIT_CANNOT_INVOKE);
+    saved_errno = errno;
 
-  return exit_status;
+    /* The execve failed.  Output a diagnostic to stderr only if:
+       - stderr was initially redirected to a non-tty, or
+       - stderr was initially directed to a tty, and we
+         can dup2 it to point back to that same tty.
+       In other words, output the diagnostic if possible, but only if
+       it will go to the original stderr.  */
+    if (dup2 (saved_stderr_fd, STDERR_FILENO) == STDERR_FILENO)
+      error (0, saved_errno, _("failed to run command %s"), quote (*cmd));
+
+    exit (exit_status);
+  }
 }

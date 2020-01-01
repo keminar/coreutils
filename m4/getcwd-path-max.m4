@@ -1,12 +1,12 @@
-# serial 19
+# serial 14
 # Check for several getcwd bugs with long file names.
 # If so, arrange to compile the wrapper function.
 
 # This is necessary for at least GNU libc on linux-2.4.19 and 2.4.20.
 # I've heard that this is due to a Linux kernel bug, and that it has
-# been fixed between 2.4.21-pre3 and 2.4.21-pre4.
+# been fixed between 2.4.21-pre3 and 2.4.21-pre4.  */
 
-# Copyright (C) 2003-2007, 2009-2016 Free Software Foundation, Inc.
+# Copyright (C) 2003-2007, 2009 Free Software Foundation, Inc.
 # This file is free software; the Free Software Foundation
 # gives unlimited permission to copy and/or distribute it,
 # with or without modifications, as long as this notice is preserved.
@@ -16,32 +16,22 @@
 AC_DEFUN([gl_FUNC_GETCWD_PATH_MAX],
 [
   AC_CHECK_DECLS_ONCE([getcwd])
-  AC_REQUIRE([AC_CANONICAL_HOST]) dnl for cross-compiles
   AC_REQUIRE([gl_USE_SYSTEM_EXTENSIONS])
-  AC_CHECK_HEADERS_ONCE([unistd.h])
-  AC_REQUIRE([gl_PATHMAX_SNIPPET_PREREQ])
   AC_CACHE_CHECK([whether getcwd handles long file names properly],
     gl_cv_func_getcwd_path_max,
     [# Arrange for deletion of the temporary directory this test creates.
      ac_clean_files="$ac_clean_files confdir3"
-     dnl Please keep this in sync with tests/test-getcwd.c.
      AC_RUN_IFELSE(
        [AC_LANG_SOURCE(
-          [[
+	  [[
 #include <errno.h>
 #include <stdlib.h>
-#if HAVE_UNISTD_H
-# include <unistd.h>
-#else
-# include <direct.h>
-#endif
+#include <unistd.h>
 #include <string.h>
 #include <limits.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <fcntl.h>
-
-]gl_PATHMAX_SNIPPET[
 
 #ifndef AT_FDCWD
 # define AT_FDCWD 0
@@ -51,9 +41,6 @@ AC_DEFUN([gl_FUNC_GETCWD_PATH_MAX],
 #else
 # define is_ENAMETOOLONG(x) 0
 #endif
-
-/* Use the getcwd function, not any macro.  */
-#undef getcwd
 
 /* Don't get link errors because mkdir is redefined to rpl_mkdir.  */
 #undef mkdir
@@ -90,7 +77,7 @@ main ()
   exit (0);
 #else
   char buf[PATH_MAX * (DIR_NAME_SIZE / DOTDOTSLASH_LEN + 1)
-           + DIR_NAME_SIZE + BUF_SLOP];
+	   + DIR_NAME_SIZE + BUF_SLOP];
   char *cwd = getcwd (buf, PATH_MAX);
   size_t initial_cwd_len;
   size_t cwd_len;
@@ -98,7 +85,7 @@ main ()
   size_t n_chdirs = 0;
 
   if (cwd == NULL)
-    exit (10);
+    exit (1);
 
   cwd_len = initial_cwd_len = strlen (cwd);
 
@@ -109,75 +96,58 @@ main ()
 
       cwd_len += DIR_NAME_SIZE;
       /* If mkdir or chdir fails, it could be that this system cannot create
-         any file with an absolute name longer than PATH_MAX, such as cygwin.
-         If so, leave fail as 0, because the current working directory can't
-         be too long for getcwd if it can't even be created.  For other
-         errors, be pessimistic and consider that as a failure, too.  */
+	 any file with an absolute name longer than PATH_MAX, such as cygwin.
+	 If so, leave fail as 0, because the current working directory can't
+	 be too long for getcwd if it can't even be created.  For other
+	 errors, be pessimistic and consider that as a failure, too.  */
       if (mkdir (DIR_NAME, S_IRWXU) < 0 || chdir (DIR_NAME) < 0)
-        {
-          if (! (errno == ERANGE || is_ENAMETOOLONG (errno)))
-            fail = 20;
-          break;
-        }
+	{
+	  if (! (errno == ERANGE || is_ENAMETOOLONG (errno)))
+	    fail = 2;
+	  break;
+	}
 
       if (PATH_MAX <= cwd_len && cwd_len < PATH_MAX + DIR_NAME_SIZE)
-        {
-          struct stat sb;
-
-          c = getcwd (buf, PATH_MAX);
-          if (!c && errno == ENOENT)
-            {
-              fail = 11;
-              break;
-            }
-          if (c)
-            {
-              fail = 31;
-              break;
-            }
-          if (! (errno == ERANGE || is_ENAMETOOLONG (errno)))
-            {
-              fail = 21;
-              break;
-            }
-
-          /* Our replacement needs to be able to stat() long ../../paths,
-             so generate a path larger than PATH_MAX to check,
-             avoiding the replacement if we can't stat().  */
-          c = getcwd (buf, cwd_len + 1);
-          if (c && !AT_FDCWD && stat (c, &sb) != 0 && is_ENAMETOOLONG (errno))
-            {
-              fail = 32;
-              break;
-            }
-        }
+	{
+	  c = getcwd (buf, PATH_MAX);
+	  if (!c && errno == ENOENT)
+	    {
+	      fail = 1;
+	      break;
+	    }
+	  if (c || ! (errno == ERANGE || is_ENAMETOOLONG (errno)))
+	    {
+	      fail = 2;
+	      break;
+	    }
+	}
 
       if (dotdot_max <= cwd_len - initial_cwd_len)
-        {
-          if (dotdot_max + DIR_NAME_SIZE < cwd_len - initial_cwd_len)
-            break;
-          c = getcwd (buf, cwd_len + 1);
-          if (!c)
-            {
-              if (! (errno == ERANGE || errno == ENOENT
-                     || is_ENAMETOOLONG (errno)))
-                {
-                  fail = 22;
-                  break;
-                }
-              if (AT_FDCWD || errno == ERANGE || errno == ENOENT)
-                {
-                  fail = 12;
-                  break;
-                }
-            }
-        }
+	{
+	  if (dotdot_max + DIR_NAME_SIZE < cwd_len - initial_cwd_len)
+	    break;
+	  c = getcwd (buf, cwd_len + 1);
+	  if (!c)
+	    {
+	      if (! (errno == ERANGE || errno == ENOENT
+		     || is_ENAMETOOLONG (errno)))
+		{
+		  fail = 2;
+		  break;
+		}
+	      if (AT_FDCWD || errno == ERANGE || errno == ENOENT)
+		{
+		  fail = 1;
+		  break;
+		}
+	    }
+	}
 
       if (c && strlen (c) != cwd_len)
-        {
-          fail = 23;
-          break;
-        }
+	{
+	  fail = 2;
+	  break;
+	}
       ++n_chdirs;
     }
 
@@ -191,10 +161,10 @@ main ()
     rmdir (DIR_NAME);
     for (i = 0; i <= n_chdirs; i++)
       {
-        if (chdir ("..") < 0)
-          break;
-        if (rmdir (DIR_NAME) != 0)
-          break;
+	if (chdir ("..") < 0)
+	  break;
+	if (rmdir (DIR_NAME) != 0)
+	  break;
       }
   }
 
@@ -204,14 +174,17 @@ main ()
           ]])],
     [gl_cv_func_getcwd_path_max=yes],
     [case $? in
-     10|11|12) gl_cv_func_getcwd_path_max='no, but it is partly working';;
-     31) gl_cv_func_getcwd_path_max='no, it has the AIX bug';;
-     32) gl_cv_func_getcwd_path_max='yes, but with shorter paths';;
+     1) gl_cv_func_getcwd_path_max='no, but it is partly working';;
      *) gl_cv_func_getcwd_path_max=no;;
      esac],
-    [case "$host_os" in
-       aix*) gl_cv_func_getcwd_path_max='no, it has the AIX bug';;
-       *) gl_cv_func_getcwd_path_max=no;;
-     esac])
+    [gl_cv_func_getcwd_path_max=no])
   ])
+  case $gl_cv_func_getcwd_path_max in
+  no,*)
+    AC_DEFINE([HAVE_PARTLY_WORKING_GETCWD], [1],
+      [Define to 1 if getcwd works, except it sometimes fails when it shouldn't,
+       setting errno to ERANGE, ENAMETOOLONG, or ENOENT.  If __GETCWD_PREFIX
+       is not defined, it doesn't matter whether HAVE_PARTLY_WORKING_GETCWD
+       is defined.]);;
+  esac
 ])

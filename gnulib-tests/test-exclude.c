@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Test suite for exclude.
-   Copyright (C) 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2009 Free Software Foundation, Inc.
    This file is part of the GNUlib Library.
 
    This program is free software: you can redistribute it and/or modify
@@ -63,10 +66,7 @@ ARGMATCH_VERIFY (exclude_keywords, exclude_flags);
 /* Some packages define ARGMATCH_DIE and ARGMATCH_DIE_DECL in <config.h>, and
    thus must link with a definition of that function.  Provide it here.  */
 #ifdef ARGMATCH_DIE_DECL
-
-_Noreturn ARGMATCH_DIE_DECL;
 ARGMATCH_DIE_DECL { exit (1); }
-
 #endif
 
 int
@@ -84,39 +84,30 @@ main (int argc, char **argv)
     {
       char *opt = *++argv;
       if (opt[0] == '-')
-        {
-          int neg = 0;
-          int flag;
-          char *s = opt + 1;
+	{
+	  int neg = 0;
+	  int flag;
+	  char *s = opt + 1;
 
-          if (opt[1] == '-' && opt[2] == 0)
-            {
-              argc--;
-              break;
-            }
-          if (strlen (s) > 3 && memcmp (s, "no-", 3) == 0)
-            {
-              neg = 1;
-              s += 3;
-            }
-          flag = XARGMATCH (opt, s, exclude_keywords, exclude_flags);
-          if (neg)
-            exclude_options &= ~flag;
-          else
-            exclude_options |= flag;
-
-          /* Skip this test if invoked with -leading-dir on a system that
-             lacks support for FNM_LEADING_DIR. */
-          if (strcmp (s, "leading_dir") == 0 && FNM_LEADING_DIR == 0)
-            exit (77);
-
-          /* Likewise for -casefold and FNM_CASEFOLD.  */
-          if (strcmp (s, "casefold") == 0 && FNM_CASEFOLD == 0)
-            exit (77);
-        }
+	  if (opt[1] == '-' && opt[2] == 0)
+	    {
+	      argc--;
+	      break;
+	    }
+	  if (strlen (s) > 3 && memcmp (s, "no-", 3) == 0)
+	    {
+	      neg = 1;
+	      s += 3;
+	    }
+	  flag = XARGMATCH (opt, s, exclude_keywords, exclude_flags);
+	  if (neg)
+	    exclude_options &= ~flag;
+	  else
+	    exclude_options |= flag;
+	}
       else if (add_exclude_file (add_exclude, exclude, opt,
-                                 exclude_options, '\n') != 0)
-        error (1, errno, "error loading %s", opt);
+				 exclude_options, '\n') != 0)
+	error (1, errno, "error loading %s", opt);
     }
 
   for (; argc; --argc)

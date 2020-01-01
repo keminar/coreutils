@@ -1,7 +1,7 @@
 /*
    Copyright (C) 1995 Ian Jackson <iwj10@cus.cam.ac.uk>
    Copyright (C) 2001 Anthony Towns <aj@azure.humbug.org.au>
-   Copyright (C) 2008-2016 Free Software Foundation, Inc.
+   Copyright (C) 2008-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -57,7 +57,7 @@ match_suffix (const char **str)
 }
 
 /* verrevcmp helper function */
-static int
+static inline int
 order (unsigned char c)
 {
   if (c_isdigit (c))
@@ -77,10 +77,10 @@ order (unsigned char c)
    This implements the algorithm for comparison of version strings
    specified by Debian and now widely adopted.  The detailed
    specification can be found in the Debian Policy Manual in the
-   section on the 'Version' control field.  This version of the code
+   section on the `Version' control field.  This version of the code
    implements that from s5.6.12 of Debian Policy v3.8.0.1
    http://www.debian.org/doc/debian-policy/ch-controlfields.html#s-f-Version */
-static int _GL_ATTRIBUTE_PURE
+static int
 verrevcmp (const char *s1, size_t s1_len, const char *s2, size_t s2_len)
 {
   size_t s1_pos = 0;
@@ -89,32 +89,32 @@ verrevcmp (const char *s1, size_t s1_len, const char *s2, size_t s2_len)
     {
       int first_diff = 0;
       while ((s1_pos < s1_len && !c_isdigit (s1[s1_pos]))
-             || (s2_pos < s2_len && !c_isdigit (s2[s2_pos])))
-        {
-          int s1_c = (s1_pos == s1_len) ? 0 : order (s1[s1_pos]);
-          int s2_c = (s2_pos == s2_len) ? 0 : order (s2[s2_pos]);
-          if (s1_c != s2_c)
-            return s1_c - s2_c;
-          s1_pos++;
-          s2_pos++;
-        }
+	     || (s2_pos < s2_len && !c_isdigit (s2[s2_pos])))
+	{
+	  int s1_c = (s1_pos == s1_len) ? 0 : order (s1[s1_pos]);
+	  int s2_c = (s2_pos == s2_len) ? 0 : order (s2[s2_pos]);
+	  if (s1_c != s2_c)
+	    return s1_c - s2_c;
+	  s1_pos++;
+	  s2_pos++;
+	}
       while (s1[s1_pos] == '0')
-        s1_pos++;
+	s1_pos++;
       while (s2[s2_pos] == '0')
-        s2_pos++;
+	s2_pos++;
       while (c_isdigit (s1[s1_pos]) && c_isdigit (s2[s2_pos]))
-        {
-          if (!first_diff)
-            first_diff = s1[s1_pos] - s2[s2_pos];
-          s1_pos++;
-          s2_pos++;
-        }
+	{
+	  if (!first_diff)
+	    first_diff = s1[s1_pos] - s2[s2_pos];
+	  s1_pos++;
+	  s2_pos++;
+	}
       if (c_isdigit (s1[s1_pos]))
-        return 1;
+	return 1;
       if (c_isdigit (s2[s2_pos]))
-        return -1;
+	return -1;
       if (first_diff)
-        return first_diff;
+	return first_diff;
     }
   return 0;
 }

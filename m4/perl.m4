@@ -3,8 +3,7 @@
 dnl From Jim Meyering.
 dnl Find a new-enough version of Perl.
 
-# Copyright (C) 1998-2001, 2003-2004, 2007, 2009-2016 Free Software Foundation,
-# Inc.
+# Copyright (C) 1998-2001, 2003-2004, 2007, 2009 Free Software Foundation, Inc.
 #
 # This file is free software; the Free Software Foundation
 # gives unlimited permission to copy and/or distribute it,
@@ -15,7 +14,7 @@ AC_DEFUN([gl_PERL],
   dnl FIXME: don't hard-code 5.005
   AC_MSG_CHECKING([for perl5.005 or newer])
   if test "${PERL+set}" = set; then
-    # 'PERL' is set in the user's environment.
+    # `PERL' is set in the user's environment.
     candidate_perl_names="$PERL"
     perl_specified=yes
   else

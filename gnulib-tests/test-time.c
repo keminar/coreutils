@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Test of <time.h> substitute.
-   Copyright (C) 2007, 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2007, 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -22,20 +25,14 @@
 
 #include "verify.h"
 
-/* Check that the types are all defined.  */
-struct timespec t1;
-#if 0
-/* POSIX:2008 does not require pid_t in <time.h> unconditionally, and indeed
-   it's missing on Mac OS X 10.5, FreeBSD 6.4, OpenBSD 4.9, mingw.  */
-pid_t t2;
-#endif
+struct timespec a;
 
 /* Check that NULL can be passed through varargs as a pointer type,
    per POSIX 2008.  */
 verify (sizeof NULL == sizeof (void *));
 
 int
-main (void)
+main ()
 {
   return 0;
 }

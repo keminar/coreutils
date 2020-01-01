@@ -1,6 +1,9 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* unlinkdir.c - determine whether we can unlink directories
 
-   Copyright (C) 2005-2006, 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2005-2006, 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -21,7 +24,6 @@
 
 #include "unlinkdir.h"
 #include "priv-set.h"
-#include "root-uid.h"
 #include <unistd.h>
 
 #if ! UNLINK_CANNOT_UNLINK_DIR
@@ -39,12 +41,12 @@ cannot_unlink_dir (void)
     {
 # if defined PRIV_SYS_LINKDIR
       /* We might be able to unlink directories if we cannot
-         determine our privileges, or if we have the
-         PRIV_SYS_LINKDIR privilege.  */
+	 determine our privileges, or if we have the
+	 PRIV_SYS_LINKDIR privilege.  */
       cannot = (priv_set_ismember (PRIV_SYS_LINKDIR) == 0);
 # else
       /* In traditional Unix, only root can unlink directories.  */
-      cannot = (geteuid () != ROOT_UID);
+      cannot = (geteuid () != 0);
 # endif
       initialized = true;
     }

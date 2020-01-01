@@ -1,5 +1,5 @@
 /* Stub for readlink().
-   Copyright (C) 2003-2007, 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2003-2007, 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -29,8 +29,8 @@
    such as DJGPP 2.03 and mingw32.  */
 
 ssize_t
-readlink (const char *name, char *buf _GL_UNUSED,
-          size_t bufsize _GL_UNUSED)
+readlink (const char *name, char *buf _UNUSED_PARAMETER_,
+          size_t bufsize _UNUSED_PARAMETER_)
 {
   struct stat statbuf;
 

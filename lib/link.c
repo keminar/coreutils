@@ -1,6 +1,9 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Emulate link on platforms that lack it, namely native Windows platforms.
 
-   Copyright (C) 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2009 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -13,7 +16,8 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program; if not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software Foundation,
+   Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.  */
 
 #include <config.h>
 
@@ -32,8 +36,8 @@
 
 /* CreateHardLink was introduced only in Windows 2000.  */
 typedef BOOL (WINAPI * CreateHardLinkFuncType) (LPCTSTR lpFileName,
-                                                LPCTSTR lpExistingFileName,
-                                                LPSECURITY_ATTRIBUTES lpSecurityAttributes);
+						LPCTSTR lpExistingFileName,
+						LPSECURITY_ATTRIBUTES lpSecurityAttributes);
 static CreateHardLinkFuncType CreateHardLinkFunc = NULL;
 static BOOL initialized = FALSE;
 
@@ -44,7 +48,7 @@ initialize (void)
   if (kernel32 != NULL)
     {
       CreateHardLinkFunc =
-        (CreateHardLinkFuncType) GetProcAddress (kernel32, "CreateHardLinkA");
+	(CreateHardLinkFuncType) GetProcAddress (kernel32, "CreateHardLinkA");
     }
   initialized = TRUE;
 }
@@ -102,39 +106,39 @@ link (const char *file1, const char *file2)
        * system. */
       DWORD err = GetLastError ();
       switch (err)
-        {
-        case ERROR_ACCESS_DENIED:
-          errno = EACCES;
-          break;
+	{
+	case ERROR_ACCESS_DENIED:
+	  errno = EACCES;
+	  break;
 
-        case ERROR_INVALID_FUNCTION:    /* fs does not support hard links */
-          errno = EPERM;
-          break;
+	case ERROR_INVALID_FUNCTION:	/* fs does not support hard links */
+	  errno = EPERM;
+	  break;
 
-        case ERROR_NOT_SAME_DEVICE:
-          errno = EXDEV;
-          break;
+	case ERROR_NOT_SAME_DEVICE:
+	  errno = EXDEV;
+	  break;
 
-        case ERROR_PATH_NOT_FOUND:
-        case ERROR_FILE_NOT_FOUND:
-          errno = ENOENT;
-          break;
+	case ERROR_PATH_NOT_FOUND:
+	case ERROR_FILE_NOT_FOUND:
+	  errno = ENOENT;
+	  break;
 
-        case ERROR_INVALID_PARAMETER:
-          errno = ENAMETOOLONG;
-          break;
+	case ERROR_INVALID_PARAMETER:
+	  errno = ENAMETOOLONG;
+	  break;
 
-        case ERROR_TOO_MANY_LINKS:
-          errno = EMLINK;
-          break;
+	case ERROR_TOO_MANY_LINKS:
+	  errno = EMLINK;
+	  break;
 
-        case ERROR_ALREADY_EXISTS:
-          errno = EEXIST;
-          break;
+	case ERROR_ALREADY_EXISTS:
+	  errno = EEXIST;
+	  break;
 
-        default:
-          errno = EIO;
-        }
+	default:
+	  errno = EIO;
+	}
       return -1;
     }
 
@@ -154,20 +158,9 @@ link (const char *file1, const char *file2)
 int
 rpl_link (char const *file1, char const *file2)
 {
-  size_t len1;
-  size_t len2;
-  struct stat st;
-
-  /* Don't allow IRIX to dereference dangling file2 symlink.  */
-  if (!lstat (file2, &st))
-    {
-      errno = EEXIST;
-      return -1;
-    }
-
   /* Reject trailing slashes on non-directories.  */
-  len1 = strlen (file1);
-  len2 = strlen (file2);
+  size_t len1 = strlen (file1);
+  size_t len2 = strlen (file2);
   if ((len1 && file1[len1 - 1] == '/')
       || (len2 && file2[len2 - 1] == '/'))
     {
@@ -175,6 +168,7 @@ rpl_link (char const *file1, char const *file2)
          If stat() fails, then link() should fail for the same reason
          (although on Solaris 9, link("file/","oops") mistakenly
          succeeds); if stat() succeeds, require a directory.  */
+      struct stat st;
       if (stat (file1, &st))
         return -1;
       if (!S_ISDIR (st.st_mode))
@@ -187,6 +181,7 @@ rpl_link (char const *file1, char const *file2)
     {
       /* Fix Cygwin 1.5.x bug where link("a","b/.") creates file "b".  */
       char *dir = strdup (file2);
+      struct stat st;
       char *p;
       if (!dir)
         return -1;

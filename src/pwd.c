@@ -1,5 +1,5 @@
 /* pwd - print current directory
-   Copyright (C) 1994-2016 Free Software Foundation, Inc.
+   Copyright (C) 1994-1997, 1999-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -25,7 +25,7 @@
 #include "root-dev-ino.h"
 #include "xgetcwd.h"
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "pwd"
 
 #define AUTHORS proper_name ("Jim Meyering")
@@ -50,7 +50,8 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("Usage: %s [OPTION]...\n"), program_name);
@@ -64,11 +65,8 @@ Print the full filename of the current working directory.\n\
 "), stdout);
       fputs (HELP_OPTION_DESCRIPTION, stdout);
       fputs (VERSION_OPTION_DESCRIPTION, stdout);
-      fputs (_("\n\
-If no option is specified, -P is assumed.\n\
-"), stdout);
       printf (USAGE_BUILTIN_WARNING, PROGRAM_NAME);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
@@ -121,7 +119,7 @@ file_name_prepend (struct file_name *p, char const *s, size_t s_len)
   memcpy (p->start + 1, s, s_len);
 }
 
-/* Return a string (malloc'd) consisting of N '/'-separated ".." components.  */
+/* Return a string (malloc'd) consisting of N `/'-separated ".." components.  */
 static char *
 nth_parent (size_t n)
 {
@@ -140,11 +138,11 @@ nth_parent (size_t n)
 
 /* Determine the basename of the current directory, where DOT_SB is the
    result of lstat'ing "." and prepend that to the file name in *FILE_NAME.
-   Find the directory entry in '..' that matches the dev/i-node of DOT_SB.
-   Upon success, update *DOT_SB with stat information of '..', chdir to '..',
+   Find the directory entry in `..' that matches the dev/i-node of DOT_SB.
+   Upon success, update *DOT_SB with stat information of `..', chdir to `..',
    and prepend "/basename" to FILE_NAME.
    Otherwise, exit with a diagnostic.
-   PARENT_HEIGHT is the number of levels '..' is above the starting directory.
+   PARENT_HEIGHT is the number of levels `..' is above the starting directory.
    The first time this function is called (from the initial directory),
    PARENT_HEIGHT is 1.  This is solely for diagnostics.
    Exit nonzero upon error.  */
@@ -257,7 +255,7 @@ find_dir_entry (struct stat *dot_sb, struct file_name *file_name,
    the information the caller would require in order to produce good
    diagnostics, it doesn't seem worth the added complexity.
    In any case, any getcwd replacement must *not* exceed the PATH_MAX
-   limitation.  Otherwise, functions like 'chdir' would fail with
+   limitation.  Otherwise, functions like `chdir' would fail with
    ENAMETOOLONG.
 
    FIXME-maybe: if find_dir_entry fails due to permissions, try getcwd,
@@ -274,10 +272,10 @@ robust_getcwd (struct file_name *file_name)
 
   if (root_dev_ino == NULL)
     error (EXIT_FAILURE, errno, _("failed to get attributes of %s"),
-           quoteaf ("/"));
+           quote ("/"));
 
   if (stat (".", &dot_sb) < 0)
-    error (EXIT_FAILURE, errno, _("failed to stat %s"), quoteaf ("."));
+    error (EXIT_FAILURE, errno, _("failed to stat %s"), quote ("."));
 
   while (1)
     {
@@ -317,7 +315,7 @@ logical_getcwd (void)
     }
 
   /* System call validation.  */
-  if (stat (wd, &st1) == 0 && stat (".", &st2) == 0 && SAME_INODE (st1, st2))
+  if (stat (wd, &st1) == 0 && stat (".", &st2) == 0 && SAME_INODE(st1, st2))
     return wd;
   return NULL;
 }
@@ -327,9 +325,7 @@ int
 main (int argc, char **argv)
 {
   char *wd;
-  /* POSIX requires a default of -L, but most scripts expect -P.
-     Currently shells default to -L, while stand-alone
-     pwd implementations default to -P.  */
+  /* POSIX requires a default of -L, but most scripts expect -P.  */
   bool logical = (getenv ("POSIXLY_CORRECT") != NULL);
 
   initialize_main (&argc, &argv);
@@ -372,7 +368,7 @@ main (int argc, char **argv)
       if (wd)
         {
           puts (wd);
-          return EXIT_SUCCESS;
+          exit (EXIT_SUCCESS);
         }
     }
 
@@ -390,5 +386,5 @@ main (int argc, char **argv)
       file_name_free (file_name);
     }
 
-  return EXIT_SUCCESS;
+  exit (EXIT_SUCCESS);
 }

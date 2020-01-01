@@ -1,7 +1,7 @@
-# serial 3
+# serial 2
 # Check for flexible array member support.
 
-# Copyright (C) 2006, 2009-2016 Free Software Foundation, Inc.
+# Copyright (C) 2006, 2009 Free Software Foundation, Inc.
 # This file is free software; the Free Software Foundation
 # gives unlimited permission to copy and/or distribute it,
 # with or without modifications, as long as this notice is preserved.
@@ -14,21 +14,21 @@ AC_DEFUN([AC_C_FLEXIBLE_ARRAY_MEMBER],
     ac_cv_c_flexmember,
     [AC_COMPILE_IFELSE(
        [AC_LANG_PROGRAM(
-          [[#include <stdlib.h>
-            #include <stdio.h>
-            #include <stddef.h>
-            struct s { int n; double d[]; };]],
-          [[int m = getchar ();
-            struct s *p = malloc (offsetof (struct s, d)
-                                  + m * sizeof (double));
-            p->d[0] = 0.0;
-            return p->d != (double *) NULL;]])],
+	  [[#include <stdlib.h>
+	    #include <stdio.h>
+	    #include <stddef.h>
+	    struct s { int n; double d[]; };]],
+	  [[int m = getchar ();
+	    struct s *p = malloc (offsetof (struct s, d)
+				  + m * sizeof (double));
+	    p->d[0] = 0.0;
+	    return p->d != (double *) NULL;]])],
        [ac_cv_c_flexmember=yes],
        [ac_cv_c_flexmember=no])])
   if test $ac_cv_c_flexmember = yes; then
     AC_DEFINE([FLEXIBLE_ARRAY_MEMBER], [],
       [Define to nothing if C supports flexible array members, and to
-       1 if it does not.  That way, with a declaration like 'struct s
+       1 if it does not.  That way, with a declaration like `struct s
        { int n; double d@<:@FLEXIBLE_ARRAY_MEMBER@:>@; };', the struct hack
        can be used with pre-C99 compilers.
        When computing the size of such an object, don't use 'sizeof (struct s)'

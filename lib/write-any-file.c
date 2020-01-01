@@ -1,6 +1,6 @@
 /* Determine whether we can write any file.
 
-   Copyright (C) 2007, 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2007 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -21,7 +21,6 @@
 
 #include "write-any-file.h"
 #include "priv-set.h"
-#include "root-uid.h"
 
 #include <unistd.h>
 
@@ -41,7 +40,7 @@ can_write_any_file (void)
       can = (priv_set_ismember (PRIV_FILE_DAC_WRITE) == 1);
 #else
       /* In traditional Unix, only root can unlink directories.  */
-      can = (geteuid () == ROOT_UID);
+      can = (geteuid () == 0);
 #endif
       can_write = can;
       initialized = true;

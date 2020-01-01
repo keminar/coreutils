@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Test of freadptr() function.
-   Copyright (C) 2007-2016 Free Software Foundation, Inc.
+   Copyright (C) 2007-2008 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -24,7 +27,17 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#include "macros.h"
+#define ASSERT(expr) \
+  do									     \
+    {									     \
+      if (!(expr))							     \
+        {								     \
+          fprintf (stderr, "%s:%d: assertion failed\n", __FILE__, __LINE__); \
+          fflush (stderr);						     \
+          abort ();							     \
+        }								     \
+    }									     \
+  while (0)
 
 static int
 freadptrbufsize (FILE *fp)
@@ -50,12 +63,12 @@ main (int argc, char **argv)
   else
     {
       if (lseek (0, 0, SEEK_CUR) == nbytes)
-        /* An unbuffered stdio, such as BeOS or on uClibc compiled without
-           __STDIO_BUFFERS.  */
-        ASSERT (freadptrbufsize (stdin) == 0);
+	/* An unbuffered stdio, such as BeOS or on uClibc compiled without
+	   __STDIO_BUFFERS.  */
+	ASSERT (freadptrbufsize (stdin) == 0);
       else
-        /* Normal buffered stdio.  */
-        ASSERT (freadptrbufsize (stdin) != 0);
+	/* Normal buffered stdio.  */
+	ASSERT (freadptrbufsize (stdin) != 0);
     }
 
   return 0;

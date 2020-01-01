@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Test of <netdb.h> substitute.
-   Copyright (C) 2007-2008, 2010-2016 Free Software Foundation, Inc.
+   Copyright (C) 2007-2008 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -21,9 +24,6 @@
 
 /* Check that the 'struct hostent' type is defined.  */
 struct hostent t1;
-
-/* Check that the 'socklen_t' type is defined.  */
-socklen_t t2;
 
 int
 main (void)

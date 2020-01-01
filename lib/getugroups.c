@@ -1,6 +1,6 @@
 /* getugroups.c -- return a list of the groups a user is in
 
-   Copyright (C) 1990-1991, 1998-2000, 2003-2016 Free Software Foundation, Inc.
+   Copyright (C) 1990, 1991, 1998-2000, 2003-2009 Free Software Foundation.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -21,36 +21,24 @@
 
 #include "getugroups.h"
 
-#include <errno.h>
 #include <limits.h>
 #include <stdio.h> /* grp.h on alpha OSF1 V2.0 uses "FILE *". */
-#include <string.h>
+#include <grp.h>
+
 #include <unistd.h>
 
-#if !HAVE_GRP_H || defined __ANDROID__
+#include <errno.h>
 
-/* Mingw lacks all things related to group management.  The best we
-   can do is fail with ENOSYS.
+/* Some old header files might not declare setgrent, getgrent, and endgrent.
+   If you don't have them at all, we can't implement this function.
+   You lose!  */
+struct group *getgrent (void);
 
-   Bionic declares e.g. getgrent() in <grp.h> but it isn't actually
-   defined in the library.  */
+#include <string.h>
 
-int
-getugroups (int maxcount _GL_UNUSED,
-            gid_t *grouplist _GL_UNUSED,
-            char const *username _GL_UNUSED,
-            gid_t gid _GL_UNUSED)
-{
-  errno = ENOSYS;
-  return -1;
-}
+#define STREQ(s1, s2) (strcmp (s1, s2) == 0)
 
-#else /* HAVE_GRP_H */
-# include <grp.h>
-
-# define STREQ(a, b) (strcmp (a, b) == 0)
-
-/* Like 'getgroups', but for user USERNAME instead of for the current
+/* Like `getgroups', but for user USERNAME instead of for the current
    process.  Store at most MAXCOUNT group IDs in the GROUPLIST array.
    If GID is not -1, store it first (if possible).  GID should be the
    group ID (pw_gid) obtained from getpwuid, in case USERNAME is not
@@ -58,15 +46,15 @@ getugroups (int maxcount _GL_UNUSED,
    Otherwise, return the number of IDs we've written into GROUPLIST.  */
 
 int
-getugroups (int maxcount, gid_t *grouplist, char const *username,
-            gid_t gid)
+getugroups (int maxcount, GETGROUPS_T *grouplist, char const *username,
+	    gid_t gid)
 {
   int count = 0;
 
   if (gid != (gid_t) -1)
     {
       if (maxcount != 0)
-        grouplist[count] = gid;
+	grouplist[count] = gid;
       ++count;
     }
 
@@ -79,37 +67,37 @@ getugroups (int maxcount, gid_t *grouplist, char const *username,
       errno = 0;
       grp = getgrent ();
       if (grp == NULL)
-        break;
+	break;
 
       for (cp = grp->gr_mem; *cp; ++cp)
-        {
-          int n;
+	{
+	  int n;
 
-          if ( ! STREQ (username, *cp))
-            continue;
+	  if ( ! STREQ (username, *cp))
+	    continue;
 
-          /* See if this group number is already on the list.  */
-          for (n = 0; n < count; ++n)
-            if (grouplist && grouplist[n] == grp->gr_gid)
-              break;
+	  /* See if this group number is already on the list.  */
+	  for (n = 0; n < count; ++n)
+	    if (grouplist && grouplist[n] == grp->gr_gid)
+	      break;
 
-          /* If it's a new group number, then try to add it to the list.  */
-          if (n == count)
-            {
-              if (maxcount != 0)
-                {
-                  if (count >= maxcount)
-                    goto done;
-                  grouplist[count] = grp->gr_gid;
-                }
-              if (count == INT_MAX)
-                {
-                  errno = EOVERFLOW;
-                  goto done;
-                }
-              count++;
-            }
-        }
+	  /* If it's a new group number, then try to add it to the list.  */
+	  if (n == count)
+	    {
+	      if (maxcount != 0)
+		{
+		  if (count >= maxcount)
+		    goto done;
+		  grouplist[count] = grp->gr_gid;
+		}
+	      if (count == INT_MAX)
+		{
+		  errno = EOVERFLOW;
+		  goto done;
+		}
+	      count++;
+	    }
+	}
     }
 
   if (errno != 0)
@@ -124,5 +112,3 @@ getugroups (int maxcount, gid_t *grouplist, char const *username,
 
   return count;
 }
-
-#endif /* HAVE_GRP_H */

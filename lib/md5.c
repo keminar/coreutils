@@ -1,7 +1,10 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Functions to compute MD5 message digest of files or memory blocks.
    according to the definition of MD5 in RFC 1321 from April 1992.
-   Copyright (C) 1995-1997, 1999-2001, 2005-2006, 2008-2016 Free Software
-   Foundation, Inc.
+   Copyright (C) 1995,1996,1997,1999,2000,2001,2005,2006,2008
+	Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    This program is free software; you can redistribute it and/or modify it
@@ -15,19 +18,16 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program; if not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software Foundation,
+   Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.  */
 
 /* Written by Ulrich Drepper <drepper@gnu.ai.mit.edu>, 1995.  */
 
 #include <config.h>
 
-#if HAVE_OPENSSL_MD5
-# define GL_OPENSSL_INLINE _GL_EXTERN_INLINE
-#endif
 #include "md5.h"
 
-#include <stdalign.h>
-#include <stdint.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
@@ -53,18 +53,17 @@
 #endif
 
 #ifdef WORDS_BIGENDIAN
-# define SWAP(n)                                                        \
+# define SWAP(n)							\
     (((n) << 24) | (((n) & 0xff00) << 8) | (((n) >> 8) & 0xff00) | ((n) >> 24))
 #else
 # define SWAP(n) (n)
 #endif
 
-#define BLOCKSIZE 32768
+#define BLOCKSIZE 4096
 #if BLOCKSIZE % 64 != 0
 # error "invalid BLOCKSIZE"
 #endif
 
-#if ! HAVE_OPENSSL_MD5
 /* This array contains the bytes used to pad the buffer to the next
    64-byte boundary.  (RFC 1321, 3.1: Step 1)  */
 static const unsigned char fillbuf[64] = { 0x80, 0 /* , 0, 0, ...  */ };
@@ -87,7 +86,7 @@ md5_init_ctx (struct md5_ctx *ctx)
 /* Copy the 4 byte value from v into the memory location pointed to by *cp,
    If your architecture allows unaligned access this is equivalent to
    * (uint32_t *) cp = v  */
-static void
+static inline void
 set_uint32 (char *cp, uint32_t v)
 {
   memcpy (cp, &v, sizeof v);
@@ -132,7 +131,6 @@ md5_finish_ctx (struct md5_ctx *ctx, void *resbuf)
 
   return md5_read_ctx (ctx, resbuf);
 }
-#endif
 
 /* Compute MD5 message digest for bytes read from STREAM.  The
    resulting message digest number will be written into the 16 bytes
@@ -141,11 +139,8 @@ int
 md5_stream (FILE *stream, void *resblock)
 {
   struct md5_ctx ctx;
+  char buffer[BLOCKSIZE + 72];
   size_t sum;
-
-  char *buffer = malloc (BLOCKSIZE + 72);
-  if (!buffer)
-    return 1;
 
   /* Initialize the computation context.  */
   md5_init_ctx (&ctx);
@@ -161,33 +156,30 @@ md5_stream (FILE *stream, void *resblock)
 
       /* Read block.  Take care for partial reads.  */
       while (1)
-        {
-          n = fread (buffer + sum, 1, BLOCKSIZE - sum, stream);
+	{
+	  n = fread (buffer + sum, 1, BLOCKSIZE - sum, stream);
 
-          sum += n;
+	  sum += n;
 
-          if (sum == BLOCKSIZE)
-            break;
+	  if (sum == BLOCKSIZE)
+	    break;
 
-          if (n == 0)
-            {
-              /* Check for the error flag IFF N == 0, so that we don't
-                 exit the loop after a partial read due to e.g., EAGAIN
-                 or EWOULDBLOCK.  */
-              if (ferror (stream))
-                {
-                  free (buffer);
-                  return 1;
-                }
-              goto process_partial_block;
-            }
+	  if (n == 0)
+	    {
+	      /* Check for the error flag IFF N == 0, so that we don't
+	         exit the loop after a partial read due to e.g., EAGAIN
+	         or EWOULDBLOCK.  */
+	      if (ferror (stream))
+		return 1;
+	      goto process_partial_block;
+	    }
 
-          /* We've read at least one byte, so ignore errors.  But always
-             check for EOF, since feof may be true even though N > 0.
-             Otherwise, we could end up calling fread after EOF.  */
-          if (feof (stream))
-            goto process_partial_block;
-        }
+	  /* We've read at least one byte, so ignore errors.  But always
+	     check for EOF, since feof may be true even though N > 0.
+	     Otherwise, we could end up calling fread after EOF.  */
+	  if (feof (stream))
+	    goto process_partial_block;
+	}
 
       /* Process buffer with BLOCKSIZE bytes.  Note that
          BLOCKSIZE % 64 == 0
@@ -203,11 +195,9 @@ process_partial_block:
 
   /* Construct result in desired memory.  */
   md5_finish_ctx (&ctx, resblock);
-  free (buffer);
   return 0;
 }
 
-#if ! HAVE_OPENSSL_MD5
 /* Compute MD5 message digest for LEN bytes beginning at BUFFER.  The
    result is always in little endian byte order, so that a byte-wise
    output yields to the wanted ASCII representation of the message
@@ -242,15 +232,15 @@ md5_process_bytes (const void *buffer, size_t len, struct md5_ctx *ctx)
       ctx->buflen += add;
 
       if (ctx->buflen > 64)
-        {
-          md5_process_block (ctx->buffer, ctx->buflen & ~63, ctx);
+	{
+	  md5_process_block (ctx->buffer, ctx->buflen & ~63, ctx);
 
-          ctx->buflen &= 63;
-          /* The regions in the following copy operation cannot overlap.  */
-          memcpy (ctx->buffer,
-                  &((char *) ctx->buffer)[(left_over + add) & ~63],
-                  ctx->buflen);
-        }
+	  ctx->buflen &= 63;
+	  /* The regions in the following copy operation cannot overlap.  */
+	  memcpy (ctx->buffer,
+		  &((char *) ctx->buffer)[(left_over + add) & ~63],
+		  ctx->buflen);
+	}
 
       buffer = (const char *) buffer + add;
       len -= add;
@@ -260,21 +250,22 @@ md5_process_bytes (const void *buffer, size_t len, struct md5_ctx *ctx)
   if (len >= 64)
     {
 #if !_STRING_ARCH_unaligned
-# define UNALIGNED_P(p) ((uintptr_t) (p) % alignof (uint32_t) != 0)
+# define alignof(type) offsetof (struct { char c; type x; }, x)
+# define UNALIGNED_P(p) (((size_t) p) % alignof (uint32_t) != 0)
       if (UNALIGNED_P (buffer))
-        while (len > 64)
-          {
-            md5_process_block (memcpy (ctx->buffer, buffer, 64), 64, ctx);
-            buffer = (const char *) buffer + 64;
-            len -= 64;
-          }
+	while (len > 64)
+	  {
+	    md5_process_block (memcpy (ctx->buffer, buffer, 64), 64, ctx);
+	    buffer = (const char *) buffer + 64;
+	    len -= 64;
+	  }
       else
 #endif
-        {
-          md5_process_block (buffer, len & ~63, ctx);
-          buffer = (const char *) buffer + (len & ~63);
-          len &= 63;
-        }
+	{
+	  md5_process_block (buffer, len & ~63, ctx);
+	  buffer = (const char *) buffer + (len & ~63);
+	  len &= 63;
+	}
     }
 
   /* Move remaining bytes in internal buffer.  */
@@ -285,11 +276,11 @@ md5_process_bytes (const void *buffer, size_t len, struct md5_ctx *ctx)
       memcpy (&((char *) ctx->buffer)[left_over], buffer, len);
       left_over += len;
       if (left_over >= 64)
-        {
-          md5_process_block (ctx->buffer, 64, ctx);
-          left_over -= 64;
-          memcpy (ctx->buffer, &ctx->buffer[16], left_over);
-        }
+	{
+	  md5_process_block (ctx->buffer, 64, ctx);
+	  left_over -= 64;
+	  memcpy (ctx->buffer, &ctx->buffer[16], left_over);
+	}
       ctx->buflen = left_over;
     }
 }
@@ -318,13 +309,13 @@ md5_process_block (const void *buffer, size_t len, struct md5_ctx *ctx)
   uint32_t B = ctx->B;
   uint32_t C = ctx->C;
   uint32_t D = ctx->D;
-  uint32_t lolen = len;
 
   /* First increment the byte count.  RFC 1321 specifies the possible
      length of the file up to 2^64 bits.  Here we only compute the
      number of bytes.  Do a double word increment.  */
-  ctx->total[0] += lolen;
-  ctx->total[1] += (len >> 31 >> 1) + (ctx->total[0] < lolen);
+  ctx->total[0] += len;
+  if (ctx->total[0] < len)
+    ++ctx->total[1];
 
   /* Process all bytes in the buffer with 64 bytes in each round of
      the loop.  */
@@ -343,14 +334,14 @@ md5_process_block (const void *buffer, size_t len, struct md5_ctx *ctx)
          before the computation.  To reduce the work for the next steps
          we store the swapped words in the array CORRECT_WORDS.  */
 
-#define OP(a, b, c, d, s, T)                                            \
-      do                                                                \
-        {                                                               \
-          a += FF (b, c, d) + (*cwp++ = SWAP (*words)) + T;             \
-          ++words;                                                      \
-          CYCLIC (a, s);                                                \
-          a += b;                                                       \
-        }                                                               \
+#define OP(a, b, c, d, s, T)						\
+      do								\
+        {								\
+	  a += FF (b, c, d) + (*cwp++ = SWAP (*words)) + T;		\
+	  ++words;							\
+	  CYCLIC (a, s);						\
+	  a += b;							\
+        }								\
       while (0)
 
       /* It is unfortunate that C does not provide an operator for
@@ -389,13 +380,13 @@ md5_process_block (const void *buffer, size_t len, struct md5_ctx *ctx)
          in CORRECT_WORDS.  Redefine the macro to take an additional first
          argument specifying the function to use.  */
 #undef OP
-#define OP(f, a, b, c, d, k, s, T)                                      \
-      do                                                                \
-        {                                                               \
-          a += f (b, c, d) + correct_words[k] + T;                      \
-          CYCLIC (a, s);                                                \
-          a += b;                                                       \
-        }                                                               \
+#define OP(f, a, b, c, d, k, s, T)					\
+      do								\
+	{								\
+	  a += f (b, c, d) + correct_words[k] + T;			\
+	  CYCLIC (a, s);						\
+	  a += b;							\
+	}								\
       while (0)
 
       /* Round 2.  */
@@ -465,4 +456,3 @@ md5_process_block (const void *buffer, size_t len, struct md5_ctx *ctx)
   ctx->C = C;
   ctx->D = D;
 }
-#endif

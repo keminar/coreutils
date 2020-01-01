@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Test of character set conversion.
-   Copyright (C) 2007-2016 Free Software Foundation, Inc.
+   Copyright (C) 2007-2008 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -20,23 +23,24 @@
 
 #if HAVE_ICONV
 # include <iconv.h>
-
-# ifndef ICONV_CONST
-#  define ICONV_CONST /* empty */
-# endif
-
-#include "signature.h"
-SIGNATURE_CHECK (iconv, size_t, (iconv_t, ICONV_CONST char **, size_t *,
-                                 char **, size_t *));
-SIGNATURE_CHECK (iconv_close, int, (iconv_t x));
-SIGNATURE_CHECK (iconv_open, iconv_t, (char const *, char const *));
-
 #endif
 
 #include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
-#include "macros.h"
+#define ASSERT(expr) \
+  do									     \
+    {									     \
+      if (!(expr))							     \
+        {								     \
+          fprintf (stderr, "%s:%d: assertion failed\n", __FILE__, __LINE__); \
+          fflush (stderr);						     \
+          abort ();							     \
+        }								     \
+    }									     \
+  while (0)
 
 int
 main ()
@@ -60,8 +64,8 @@ main ()
     char *outptr = buf;
     size_t outbytesleft = sizeof (buf);
     size_t res = iconv (cd_88591_to_utf8,
-                        (ICONV_CONST char **) &inptr, &inbytesleft,
-                        &outptr, &outbytesleft);
+			(ICONV_CONST char **) &inptr, &inbytesleft,
+			&outptr, &outbytesleft);
     ASSERT (res == 0 && inbytesleft == 0);
     ASSERT (outptr == buf + strlen (expected));
     ASSERT (memcmp (buf, expected, strlen (expected)) == 0);
@@ -76,8 +80,8 @@ main ()
     char *outptr = buf;
     size_t outbytesleft = 1;
     size_t res = iconv (cd_88591_to_utf8,
-                        (ICONV_CONST char **) &inptr, &inbytesleft,
-                        &outptr, &outbytesleft);
+			(ICONV_CONST char **) &inptr, &inbytesleft,
+			&outptr, &outbytesleft);
     ASSERT (res == (size_t)(-1) && errno == E2BIG);
     ASSERT (inbytesleft == 1);
     ASSERT (outbytesleft == 1);
@@ -95,8 +99,8 @@ main ()
     char *outptr = buf;
     size_t outbytesleft = sizeof (buf);
     size_t res = iconv (cd_utf8_to_88591,
-                        (ICONV_CONST char **) &inptr, &inbytesleft,
-                        &outptr, &outbytesleft);
+			(ICONV_CONST char **) &inptr, &inbytesleft,
+			&outptr, &outbytesleft);
     ASSERT (res == 0 && inbytesleft == 0);
     ASSERT (outptr == buf + strlen (expected));
     ASSERT (memcmp (buf, expected, strlen (expected)) == 0);
@@ -111,17 +115,17 @@ main ()
     char *outptr = buf;
     size_t outbytesleft = sizeof (buf);
     size_t res = iconv (cd_utf8_to_88591,
-                        (ICONV_CONST char **) &inptr, &inbytesleft,
-                        &outptr, &outbytesleft);
+			(ICONV_CONST char **) &inptr, &inbytesleft,
+			&outptr, &outbytesleft);
     if (res == (size_t)(-1))
       {
         ASSERT (errno == EILSEQ);
-        ASSERT (inbytesleft == strlen (input) && outptr == buf);
+	ASSERT (inbytesleft == strlen (input) && outptr == buf);
       }
     else
       {
-        ASSERT (res == 1);
-        ASSERT (inbytesleft == 0);
+	ASSERT (res == 1);
+	ASSERT (inbytesleft == 0);
       }
   }
 
@@ -134,8 +138,8 @@ main ()
     char *outptr = buf;
     size_t outbytesleft = sizeof (buf);
     size_t res = iconv (cd_utf8_to_88591,
-                        (ICONV_CONST char **) &inptr, &inbytesleft,
-                        &outptr, &outbytesleft);
+			(ICONV_CONST char **) &inptr, &inbytesleft,
+			&outptr, &outbytesleft);
     ASSERT (res == (size_t)(-1) && errno == EINVAL);
     ASSERT (inbytesleft == 1 && outptr == buf);
   }

@@ -1,4 +1,4 @@
-#serial 15
+#serial 10
 
 # Use Gnulib's robust chdir function.
 # It can handle arbitrarily long directory names, which means
@@ -6,7 +6,7 @@
 # never fails with ENAMETOOLONG.
 # Arrange to compile chdir-long.c only on systems that define PATH_MAX.
 
-dnl Copyright (C) 2004-2007, 2009-2016 Free Software Foundation, Inc.
+dnl Copyright (C) 2004, 2005, 2006, 2007 Free Software Foundation, Inc.
 dnl This file is free software; the Free Software Foundation
 dnl gives unlimited permission to copy and/or distribute it,
 dnl with or without modifications, as long as this notice is preserved.
@@ -15,16 +15,24 @@ dnl with or without modifications, as long as this notice is preserved.
 
 AC_DEFUN([gl_FUNC_CHDIR_LONG],
 [
-  AC_REQUIRE([gl_PATHMAX_SNIPPET_PREREQ])
   AC_CACHE_CHECK([whether this system has an arbitrary file name length limit],
     gl_cv_have_arbitrary_file_name_length_limit,
     [AC_EGREP_CPP([have_arbitrary_file_name_length_limit],
-                  gl_PATHMAX_SNIPPET[
-#ifdef PATH_MAX
+                  [#include <unistd.h>
+#include <limits.h>
+#if defined PATH_MAX || defined MAXPATHLEN
 have_arbitrary_file_name_length_limit
 #endif],
     gl_cv_have_arbitrary_file_name_length_limit=yes,
     gl_cv_have_arbitrary_file_name_length_limit=no)])
+
+  if test $gl_cv_have_arbitrary_file_name_length_limit = yes; then
+    AC_LIBOBJ([chdir-long])
+    gl_PREREQ_CHDIR_LONG
+  fi
 ])
 
-AC_DEFUN([gl_PREREQ_CHDIR_LONG], [:])
+AC_DEFUN([gl_PREREQ_CHDIR_LONG],
+[
+  :
+])

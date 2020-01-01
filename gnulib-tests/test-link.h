@@ -1,9 +1,12 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Test of link() function.
-   Copyright (C) 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -18,8 +21,8 @@
    linkat(AT_FDCWD,a,AT_FDCWD,b,0).  FUNC is the function to test.
    Assumes that BASE and ASSERT are already defined, and that
    appropriate headers are already included.  If PRINT, warn before
-   skipping tests with status 77.  This test does not try to create
-   hard links to symlinks, but does test other aspects of symlink.  */
+   skipping tests with status 77.  This test does not exercise link on
+   symlinks.  */
 
 static int
 test_link (int (*func) (char const *, char const *), bool print)
@@ -115,10 +118,10 @@ test_link (int (*func) (char const *, char const *), bool print)
   ASSERT (errno == ENOENT);
   errno = 0;
   ASSERT (func (BASE "a/", BASE "c") == -1);
-  ASSERT (errno == ENOTDIR || errno == EINVAL);
+  ASSERT (errno == ENOTDIR);
   errno = 0;
   ASSERT (func (BASE "a", BASE "c/") == -1);
-  ASSERT (errno == ENOTDIR || errno == ENOENT || errno == EINVAL);
+  ASSERT (errno == ENOTDIR || errno == ENOENT);
 
   /* Most platforms reject hard links to directories, and even on
      those that do permit it, most users can't create them.  We assume
@@ -136,47 +139,23 @@ test_link (int (*func) (char const *, char const *), bool print)
     else
       {
         /* Most everyone else.  */
-        ASSERT (errno == EPERM || errno == EACCES || errno == EISDIR);
+        ASSERT (errno == EPERM || errno == EACCES);
         errno = 0;
         ASSERT (func (BASE "d/.", BASE "c") == -1);
-        ASSERT (errno == EPERM || errno == EACCES || errno == EISDIR
-                || errno == EINVAL);
+        ASSERT (errno == EPERM || errno == EACCES || errno == EINVAL);
         errno = 0;
         ASSERT (func (BASE "d/.//", BASE "c") == -1);
-        ASSERT (errno == EPERM || errno == EACCES || errno == EISDIR
-                || errno == EINVAL);
+        ASSERT (errno == EPERM || errno == EACCES || errno == EINVAL);
       }
   }
+
+  /* Clean up.  */
   ASSERT (unlink (BASE "a") == 0);
+  ASSERT (unlink (BASE "b") == 0);
   errno = 0;
   ASSERT (unlink (BASE "c") == -1);
   ASSERT (errno == ENOENT);
   ASSERT (rmdir (BASE "d") == 0);
-
-  /* Test invalid use of symlink.  */
-  if (symlink (BASE "a", BASE "link") != 0)
-    {
-      ASSERT (unlink (BASE "b") == 0);
-      if (print)
-        fputs ("skipping test: symlinks not supported on this file system\n",
-               stderr);
-      return 77;
-    }
-  errno = 0;
-  ASSERT (func (BASE "b", BASE "link/") == -1);
-  ASSERT (errno == ENOTDIR || errno == ENOENT || errno == EEXIST
-          || errno == EINVAL);
-  errno = 0;
-  ASSERT (func (BASE "b", BASE "link") == -1);
-  ASSERT (errno == EEXIST);
-  ASSERT (rename (BASE "b", BASE "a") == 0);
-  errno = 0;
-  ASSERT (func (BASE "link/", BASE "b") == -1);
-  ASSERT (errno == ENOTDIR || errno == EEXIST || errno == EINVAL);
-
-  /* Clean up.  */
-  ASSERT (unlink (BASE "a") == 0);
-  ASSERT (unlink (BASE "link") == 0);
 
   return 0;
 }

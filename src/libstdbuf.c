@@ -1,5 +1,5 @@
 /* libstdbuf -- a shared lib to preload to setup stdio buffering for a command
-   Copyright (C) 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -18,9 +18,11 @@
 
 #include <config.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "system.h"
+#include "verify.h"
 
-/* Note currently for glibc (2.3.5) the following call does not change
+/* Note currently for glibc (2.3.5) the following call does not change the
    the buffer size, and more problematically does not give any indication
    that the new size request was ignored:
 
@@ -121,12 +123,10 @@ apply_mode (FILE *stream, const char *mode)
     {
       fprintf (stderr, _("could not set buffering of %s to mode %s\n"),
                fileno_to_name (fileno (stream)), mode);
-      free (buf);
     }
 }
 
-/* Use __attribute to avoid elision of __attribute__ on SUNPRO_C etc.  */
-static void __attribute ((constructor))
+__attribute__ ((constructor)) static void
 stdbuf (void)
 {
   char *e_mode = getenv ("_STDBUF_E");

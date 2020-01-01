@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Test of select() substitute, reading from stdin.
-   Copyright (C) 2008-2016 Free Software Foundation, Inc.
+   Copyright (C) 2008 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -24,10 +27,8 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#include "macros.h"
-
 int
-main (void)
+main ()
 {
   printf ("Applying select() from standard input. Press Ctrl-C to abort.\n");
   for (;;)
@@ -49,35 +50,34 @@ main (void)
 
       gettimeofday (&after, NULL);
       spent_usec = (after.tv_sec - before.tv_sec) * 1000000
-                   + after.tv_usec - before.tv_usec;
+		   + after.tv_usec - before.tv_usec;
 
       if (ret < 0)
-        {
-          perror ("select failed");
-          exit (1);
-        }
+	{
+	  perror ("select failed");
+	  exit (1);
+	}
       if ((ret == 0) != ! FD_ISSET (0, &readfds))
-        {
-          fprintf (stderr, "incorrect return value\n");
-          exit (1);
-        }
+	{
+	  fprintf (stderr, "incorrect return value\n");
+	  exit (1);
+	}
       if (ret == 0)
-        {
-          if (spent_usec < 250000)
-            {
-              fprintf (stderr, "returned too early\n");
-              exit (1);
-            }
-          /* Timeout */
-          printf (".");
-          ASSERT (fflush (stdout) == 0);
-        }
+	{
+	  if (spent_usec < 250000)
+	    {
+	      fprintf (stderr, "returned too early\n");
+	      exit (1);
+	    }
+	  /* Timeout */
+	  printf ("."); fflush (stdout);
+	}
       else
-        {
-          char c;
+	{
+	  char c;
 
-          printf ("Input available! Trying to read 1 byte...\n");
-          ASSERT (read (0, &c, 1) == 1);
-        }
+	  printf ("Input available! Trying to read 1 byte...\n");
+	  read (0, &c, 1);
+	}
     }
 }

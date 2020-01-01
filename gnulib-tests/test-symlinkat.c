@@ -1,5 +1,8 @@
-/* Tests of symlinkat.
-   Copyright (C) 2009-2016 Free Software Foundation, Inc.
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
+/* Tests of symlinkat and readlinkat.
+   Copyright (C) 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -20,9 +23,6 @@
 
 #include <unistd.h>
 
-#include "signature.h"
-SIGNATURE_CHECK (symlinkat, int, (char const *, int, char const *));
-
 #include <fcntl.h>
 #include <errno.h>
 #include <stdbool.h>
@@ -31,15 +31,25 @@ SIGNATURE_CHECK (symlinkat, int, (char const *, int, char const *));
 #include <string.h>
 #include <sys/stat.h>
 
-#include "ignore-value.h"
-#include "macros.h"
-
 #ifndef HAVE_SYMLINK
 # define HAVE_SYMLINK 0
 #endif
 
+#define ASSERT(expr) \
+  do                                                                         \
+    {                                                                        \
+      if (!(expr))                                                           \
+	{                                                                    \
+	  fprintf (stderr, "%s:%d: assertion failed\n", __FILE__, __LINE__);  \
+	  fflush (stderr);                                                   \
+	  abort ();                                                          \
+	}                                                                    \
+    }                                                                        \
+  while (0)
+
 #define BASE "test-symlinkat.t"
 
+#include "test-readlink.h"
 #include "test-symlink.h"
 
 static int dfd = AT_FDCWD;
@@ -50,40 +60,67 @@ do_symlink (char const *contents, char const *name)
   return symlinkat (contents, dfd, name);
 }
 
-int
-main (void)
+static ssize_t
+do_readlink (char const *name, char *buf, size_t len)
 {
+  return readlinkat (dfd, name, buf, len);
+}
+
+int
+main ()
+{
+  char buf[80];
   int result;
 
   /* Remove any leftovers from a previous partial run.  */
-  ignore_value (system ("rm -rf " BASE "*"));
-
-  /* Test behaviour for invalid file descriptors.  */
-  {
-    errno = 0;
-    ASSERT (symlinkat ("foo", -1, "bar") == -1);
-    ASSERT (errno == EBADF
-            || errno == ENOSYS /* seen on mingw */
-           );
-  }
-  {
-    close (99);
-    errno = 0;
-    ASSERT (symlinkat ("foo", 99, "bar") == -1);
-    ASSERT (errno == EBADF
-            || errno == ENOSYS /* seen on mingw */
-           );
-  }
+  ASSERT (system ("rm -rf " BASE "*") == 0);
 
   /* Perform same checks as counterpart functions.  */
-  result = test_symlink (do_symlink, false);
+  result = test_readlink (do_readlink, false);
+  ASSERT (test_symlink (do_symlink, false) == result);
   dfd = openat (AT_FDCWD, ".", O_RDONLY);
   ASSERT (0 <= dfd);
+  ASSERT (test_readlink (do_readlink, false) == result);
   ASSERT (test_symlink (do_symlink, false) == result);
+
+  /* Now perform some cross-directory checks.  Skip everything else on
+     mingw.  */
+  if (HAVE_SYMLINK)
+    {
+      const char *contents = "don't matter!";
+      ssize_t exp = strlen (contents);
+
+      /* Create link while cwd is '.', then read it in '..'.  */
+      ASSERT (symlinkat (contents, AT_FDCWD, BASE "link") == 0);
+      errno = 0;
+      ASSERT (symlinkat (contents, dfd, BASE "link") == -1);
+      ASSERT (errno == EEXIST);
+      ASSERT (chdir ("..") == 0);
+      errno = 0;
+      ASSERT (readlinkat (AT_FDCWD, BASE "link", buf, sizeof buf) == -1);
+      ASSERT (errno == ENOENT);
+      ASSERT (readlinkat (dfd, BASE "link", buf, sizeof buf) == exp);
+      ASSERT (strncmp (contents, buf, exp) == 0);
+      ASSERT (unlinkat (dfd, BASE "link", 0) == 0);
+
+      /* Create link while cwd is '..', then read it in '.'.  */
+      ASSERT (symlinkat (contents, dfd, BASE "link") == 0);
+      ASSERT (fchdir (dfd) == 0);
+      errno = 0;
+      ASSERT (symlinkat (contents, AT_FDCWD, BASE "link") == -1);
+      ASSERT (errno == EEXIST);
+      buf[0] = '\0';
+      ASSERT (readlinkat (AT_FDCWD, BASE "link", buf, sizeof buf) == exp);
+      ASSERT (strncmp (contents, buf, exp) == 0);
+      buf[0] = '\0';
+      ASSERT (readlinkat (dfd, BASE "link", buf, sizeof buf) == exp);
+      ASSERT (strncmp (contents, buf, exp) == 0);
+      ASSERT (unlink (BASE "link") == 0);
+    }
 
   ASSERT (close (dfd) == 0);
   if (result == 77)
-    fputs ("skipping test: symlinks not supported on this file system\n",
-           stderr);
+    fputs ("skipping test: symlinks not supported on this filesystem\n",
+	   stderr);
   return result;
 }

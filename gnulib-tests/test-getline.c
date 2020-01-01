@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Test of getline() function.
-   Copyright (C) 2007-2016 Free Software Foundation, Inc.
+   Copyright (C) 2007-2008 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -12,33 +15,40 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program; if not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software Foundation,
+   Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.  */
 
 /* Written by Eric Blake <ebb9@byu.net>, 2007.  */
 
 #include <config.h>
 
 #include <stdio.h>
-
-#include "signature.h"
-SIGNATURE_CHECK (getline, ssize_t, (char **, size_t *, FILE *));
-
 #include <stdlib.h>
 #include <string.h>
 
-#include "macros.h"
+#define ASSERT(expr) \
+  do									     \
+    {									     \
+      if (!(expr))							     \
+        {								     \
+          fprintf (stderr, "%s:%d: assertion failed\n", __FILE__, __LINE__); \
+          fflush (stderr);						     \
+          abort ();							     \
+        }								     \
+    }									     \
+  while (0)
 
 int
-main (void)
+main (int argc, char **argv)
 {
   FILE *f;
-  char *line;
-  size_t len;
+  char *line = NULL;
+  size_t len = 0;
   ssize_t result;
 
   /* Create test file.  */
   f = fopen ("test-getline.txt", "wb");
-  if (!f || fwrite ("a\nA\nbc\nd\0f", 1, 10, f) != 10 || fclose (f) != 0)
+  if (!f || fwrite ("a\nbc\nd\0f", 1, 8, f) != 8 || fclose (f) != 0)
     {
       fputs ("Failed to create sample file.\n", stderr);
       remove ("test-getline.txt");
@@ -53,24 +63,13 @@ main (void)
     }
 
   /* Test initial allocation, which must include trailing NUL.  */
-  line = NULL;
-  len = 0;
   result = getline (&line, &len, f);
   ASSERT (result == 2);
   ASSERT (strcmp (line, "a\n") == 0);
   ASSERT (2 < len);
-  free (line);
-
-  /* Test initial allocation again, with line = NULL and len != 0.  */
-  line = NULL;
-  len = (size_t)(~0) / 4;
-  result = getline (&line, &len, f);
-  ASSERT (result == 2);
-  ASSERT (strcmp (line, "A\n") == 0);
-  ASSERT (2 < len);
-  free (line);
 
   /* Test growth of buffer, must not leak.  */
+  free (line);
   line = malloc (1);
   len = 0;
   result = getline (&line, &len, f);

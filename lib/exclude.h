@@ -1,7 +1,7 @@
 /* exclude.h -- declarations for excluding file names
 
-   Copyright (C) 1992-1994, 1997, 1999, 2001-2003, 2005-2006, 2009-2016 Free
-   Software Foundation, Inc.
+   Copyright (C) 1992, 1993, 1994, 1997, 1999, 2001, 2002, 2003, 2005,
+   2006, 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -15,12 +15,6 @@
 
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
-
-#ifndef _GL_EXCLUDE_H
-#define _GL_EXCLUDE_H 1
-
-#include <stdbool.h>
-#include <stdio.h>
 
 /* Written by Paul Eggert <eggert@twinsun.com>
    and Sergey Poznyakoff <gray@gnu.org> */
@@ -38,25 +32,14 @@
    option, these characters are ordinary and fnmatch is not used.  */
 #define EXCLUDE_WILDCARDS (1 << 28)
 
-/* Patterns are POSIX extended regular expressions */
-#define EXCLUDE_REGEX     (1 << 27)
-
-/* Allocate storage for the pattern */
-#define EXCLUDE_ALLOC     (1 << 26)
-
 struct exclude;
 
-bool fnmatch_pattern_has_wildcards (const char *, int) _GL_ATTRIBUTE_PURE;
+bool fnmatch_pattern_has_wildcards (const char *, int);
 
 struct exclude *new_exclude (void);
 void free_exclude (struct exclude *);
 void add_exclude (struct exclude *, char const *, int);
 int add_exclude_file (void (*) (struct exclude *, char const *, int),
-                      struct exclude *, char const *, int, char);
-int add_exclude_fp (void (*) (struct exclude *, char const *, int, void *),
-		    struct exclude *, FILE *, int, char, void *);
+		      struct exclude *, char const *, int, char);
 bool excluded_file_name (struct exclude const *, char const *);
-void exclude_add_pattern_buffer (struct exclude *ex, char *buf);
-bool exclude_fnmatch (char const *, char const *, int);
-
-#endif /* _GL_EXCLUDE_H */
+bool exclude_fnmatch (char const *pattern, char const *f, int options);

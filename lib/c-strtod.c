@@ -1,6 +1,6 @@
 /* Convert string to double, using the C locale.
 
-   Copyright (C) 2003-2004, 2006, 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2003, 2004, 2006, 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -43,7 +43,7 @@
 # define STRTOD strtod
 #endif
 
-#if defined LC_ALL_MASK && (LONG ? HAVE_STRTOLD_L : HAVE_STRTOD_L)
+#ifdef LC_ALL_MASK
 
 /* Cache for the C locale object.
    Marked volatile so that different threads see the same value
@@ -52,7 +52,7 @@ static volatile locale_t c_locale_cache;
 
 /* Return the C locale object, or (locale_t) 0 with errno set
    if it cannot be created.  */
-static locale_t
+static inline locale_t
 c_locale (void)
 {
   if (!c_locale_cache)
@@ -67,13 +67,13 @@ C_STRTOD (char const *nptr, char **endptr)
 {
   DOUBLE r;
 
-#if defined LC_ALL_MASK && (LONG ? HAVE_STRTOLD_L : HAVE_STRTOD_L)
+#ifdef LC_ALL_MASK
 
   locale_t locale = c_locale ();
   if (!locale)
     {
       if (endptr)
-        *endptr = (char *) nptr;
+	*endptr = (char *) nptr;
       return 0; /* errno is set here */
     }
 
@@ -87,11 +87,11 @@ C_STRTOD (char const *nptr, char **endptr)
     {
       saved_locale = strdup (saved_locale);
       if (saved_locale == NULL)
-        {
-          if (endptr)
-            *endptr = (char *) nptr;
-          return 0; /* errno is set here */
-        }
+	{
+	  if (endptr)
+	    *endptr = (char *) nptr;
+	  return 0; /* errno is set here */
+	}
       setlocale (LC_NUMERIC, "C");
     }
 

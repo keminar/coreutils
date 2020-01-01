@@ -1,6 +1,6 @@
 # serial 8
 
-# Copyright (C) 1996, 1999-2001, 2004, 2009-2016 Free Software Foundation, Inc.
+# Copyright (C) 1996, 1999-2001, 2004, 2009 Free Software Foundation, Inc.
 # This file is free software; the Free Software Foundation
 # gives unlimited permission to copy and/or distribute it,
 # with or without modifications, as long as this notice is preserved.
@@ -18,6 +18,6 @@ AC_DEFUN([gl_SYS_PROC_UPTIME],
       && gl_cv_have_proc_uptime=yes])
   if test $gl_cv_have_proc_uptime = yes; then
     AC_DEFINE([HAVE_PROC_UPTIME], [1],
-              [  Define if your system has the /proc/uptime special file.])
+	      [  Define if your system has the /proc/uptime special file.])
   fi
 ])

@@ -1,5 +1,5 @@
 /* Hash functions for file-related triples: name, device, inode.
-   Copyright (C) 2007, 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2007 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -27,7 +27,7 @@
 #include "same.h"
 #include "same-inode.h"
 
-#define STREQ(a, b) (strcmp (a, b) == 0)
+#define STREQ(a, b) (strcmp ((a), (b)) == 0)
 
 /* Hash an F_triple, and *do* consider the file name.  */
 size_t

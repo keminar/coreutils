@@ -1,7 +1,6 @@
 /* Make a string describing file modes.
 
-   Copyright (C) 1998-1999, 2003, 2006, 2009-2016 Free Software Foundation,
-   Inc.
+   Copyright (C) 1998, 1999, 2003, 2006 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -21,24 +20,13 @@
 # include <sys/types.h>
 # include <sys/stat.h>
 
-/* Get the declaration of strmode.  */
 # if HAVE_DECL_STRMODE
-#  include <string.h> /* Mac OS X, FreeBSD, OpenBSD */
+#  include <string.h> /* FreeBSD, OpenBSD */
 #  include <unistd.h> /* NetBSD */
+# else
+void strmode (mode_t mode, char *str);
 # endif
 
-# ifdef __cplusplus
-extern "C" {
-# endif
-
-# if !HAVE_DECL_STRMODE
-extern void strmode (mode_t mode, char *str);
-# endif
-
-extern void filemodestring (struct stat const *statp, char *str);
-
-# ifdef __cplusplus
-}
-# endif
+void filemodestring (struct stat const *statp, char *str);
 
 #endif

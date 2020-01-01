@@ -1,6 +1,6 @@
 /* Make a file's ancestor directories.
 
-   Copyright (C) 2006, 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2006 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -42,9 +42,11 @@
 
    Create any ancestor directories that don't already exist, by
    invoking MAKE_DIR (FILE, COMPONENT, MAKE_DIR_ARG).  This function
-   should return 0 if successful, -1 (setting errno) otherwise.  If
-   COMPONENT is relative, it is relative to the temporary working
-   directory, which may differ from *WD.
+   should return 0 if successful and the resulting directory is
+   readable, 1 if successful but the resulting directory might not be
+   readable, -1 (setting errno) otherwise.  If COMPONENT is relative,
+   it is relative to the temporary working directory, which may differ
+   from *WD.
 
    Ordinarily MAKE_DIR is executed with the working directory changed
    to reflect the already-made prefix, and mkancesdirs returns with
@@ -63,8 +65,8 @@
 
 ptrdiff_t
 mkancesdirs (char *file, struct savewd *wd,
-             int (*make_dir) (char const *, char const *, void *),
-             void *make_dir_arg)
+	     int (*make_dir) (char const *, char const *, void *),
+	     void *make_dir_arg)
 {
   /* Address of the previous directory separator that follows an
      ordinary byte in a file name in the left-to-right scan, or NULL
@@ -88,53 +90,63 @@ mkancesdirs (char *file, struct savewd *wd,
   while ((c = *p++))
     if (ISSLASH (*p))
       {
-        if (! ISSLASH (c))
-          sep = p;
+	if (! ISSLASH (c))
+	  sep = p;
       }
     else if (ISSLASH (c) && *p && sep)
       {
-        /* Don't bother to make or test for "." since it does not
-           affect the algorithm.  */
-        if (! (sep - component == 1 && component[0] == '.'))
-          {
-            int make_dir_errno = 0;
-            int savewd_chdir_options = 0;
-            int chdir_result;
+	/* Don't bother to make or test for "." since it does not
+	   affect the algorithm.  */
+	if (! (sep - component == 1 && component[0] == '.'))
+	  {
+	    int make_dir_errno = 0;
+	    int savewd_chdir_options = 0;
+	    int chdir_result;
 
-            /* Temporarily modify FILE to isolate this file name
-               component.  */
-            *sep = '\0';
+	    /* Temporarily modify FILE to isolate this file name
+	       component.  */
+	    *sep = '\0';
 
-            /* Invoke MAKE_DIR on this component, except don't bother
-               with ".." since it must exist if its "parent" does.  */
-            if (sep - component == 2
-                && component[0] == '.' && component[1] == '.')
-              made_dir = false;
-            else if (make_dir (file, component, make_dir_arg) < 0)
-              make_dir_errno = errno;
-            else
-              made_dir = true;
+	    /* Invoke MAKE_DIR on this component, except don't bother
+	       with ".." since it must exist if its "parent" does.  */
+	    if (sep - component == 2
+		&& component[0] == '.' && component[1] == '.')
+	      made_dir = false;
+	    else
+	      switch (make_dir (file, component, make_dir_arg))
+		{
+		case -1:
+		  make_dir_errno = errno;
+		  break;
 
-            if (made_dir)
-              savewd_chdir_options |= SAVEWD_CHDIR_NOFOLLOW;
+		case 0:
+		  savewd_chdir_options |= SAVEWD_CHDIR_READABLE;
+		  /* Fall through.  */
+		case 1:
+		  made_dir = true;
+		  break;
+		}
 
-            chdir_result =
-              savewd_chdir (wd, component, savewd_chdir_options, NULL);
+	    if (made_dir)
+	      savewd_chdir_options |= SAVEWD_CHDIR_NOFOLLOW;
 
-            /* Undo the temporary modification to FILE, unless there
-               was a failure.  */
-            if (chdir_result != -1)
-              *sep = '/';
+	    chdir_result =
+	      savewd_chdir (wd, component, savewd_chdir_options, NULL);
 
-            if (chdir_result != 0)
-              {
-                if (make_dir_errno != 0 && errno == ENOENT)
-                  errno = make_dir_errno;
-                return chdir_result;
-              }
-          }
+	    /* Undo the temporary modification to FILE, unless there
+	       was a failure.  */
+	    if (chdir_result != -1)
+	      *sep = '/';
 
-        component = p;
+	    if (chdir_result != 0)
+	      {
+		if (make_dir_errno != 0 && errno == ENOENT)
+		  errno = make_dir_errno;
+		return chdir_result;
+	      }
+	  }
+
+	component = p;
       }
 
   return component - file;

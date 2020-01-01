@@ -1,5 +1,5 @@
 /* stty -- change and print terminal line settings
-   Copyright (C) 1990-2016 Free Software Foundation, Inc.
+   Copyright (C) 1990-2005, 2007-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -36,11 +36,15 @@
 #include <stdio.h>
 #include <sys/types.h>
 
-#include <termios.h>
+#if HAVE_TERMIOS_H
+# include <termios.h>
+#endif
 #if HAVE_STROPTS_H
 # include <stropts.h>
 #endif
-#include <sys/ioctl.h>
+#ifdef HAVE_SYS_IOCTL_H
+# include <sys/ioctl.h>
+#endif
 
 #ifdef WINSIZE_IN_PTEM
 # include <sys/stream.h>
@@ -52,16 +56,14 @@
 #endif
 #include <getopt.h>
 #include <stdarg.h>
-#include <assert.h>
 
 #include "system.h"
 #include "error.h"
 #include "fd-reopen.h"
 #include "quote.h"
-#include "xdectoint.h"
 #include "xstrtol.h"
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "stty"
 
 #define AUTHORS proper_name ("David MacKenzie")
@@ -118,8 +120,8 @@
 # define CSWTCH _POSIX_VDISABLE
 #endif
 
-/* SunOS 5.3 loses (^Z doesn't work) if 'swtch' is the same as 'susp'.
-   So the default is to disable 'swtch.'  */
+/* SunOS 5.3 loses (^Z doesn't work) if `swtch' is the same as `susp'.
+   So the default is to disable `swtch.'  */
 #if defined __sparc__ && defined __svr4__
 # undef CSWTCH
 # define CSWTCH _POSIX_VDISABLE
@@ -180,18 +182,17 @@ enum output_type
     changed, all, recoverable	/* Default, -a, -g.  */
   };
 
-/* Which member(s) of 'struct termios' a mode uses.  */
+/* Which member(s) of `struct termios' a mode uses.  */
 enum mode_type
   {
     control, input, output, local, combination
   };
 
-/* Flags for 'struct mode_info'. */
-#define SANE_SET 1		/* Set in 'sane' mode. */
-#define SANE_UNSET 2		/* Unset in 'sane' mode. */
-#define REV 4			/* Can be turned off by prepending '-'. */
+/* Flags for `struct mode_info'. */
+#define SANE_SET 1		/* Set in `sane' mode. */
+#define SANE_UNSET 2		/* Unset in `sane' mode. */
+#define REV 4			/* Can be turned off by prepending `-'. */
 #define OMIT 8			/* Don't display value. */
-#define NO_SETATTR 16		/* tcsetattr not used to set mode bits.  */
 
 /* Each mode.  */
 struct mode_info
@@ -207,9 +208,6 @@ static struct mode_info const mode_info[] =
 {
   {"parenb", control, REV, PARENB, 0},
   {"parodd", control, REV, PARODD, 0},
-#ifdef CMSPAR
-  {"cmspar", control, REV, CMSPAR, 0},
-#endif
   {"cs5", control, 0, CS5, CSIZE},
   {"cs6", control, 0, CS6, CSIZE},
   {"cs7", control, 0, CS7, CSIZE},
@@ -221,9 +219,6 @@ static struct mode_info const mode_info[] =
   {"clocal", control, REV, CLOCAL, 0},
 #ifdef CRTSCTS
   {"crtscts", control, REV, CRTSCTS, 0},
-#endif
-#ifdef CDTRDSR
-  {"cdtrdsr", control, REV, CDTRDSR, 0},
 #endif
 
   {"ignbrk", input, SANE_UNSET | REV, IGNBRK, 0},
@@ -343,14 +338,6 @@ static struct mode_info const mode_info[] =
   {"echoke", local, SANE_SET | REV, ECHOKE, 0},
   {"crtkill", local, REV | OMIT, ECHOKE, 0},
 #endif
-#ifdef FLUSHO
-  {"flusho", local, SANE_UNSET | REV, FLUSHO, 0},
-#endif
-#if defined TIOCEXT
-  {"extproc", local, SANE_UNSET | REV | NO_SETATTR, EXTPROC, 0},
-#elif defined EXTPROC
-  {"extproc", local, SANE_UNSET | REV, EXTPROC, 0},
-#endif
 
   {"evenp", combination, REV | OMIT, 0, 0},
   {"parity", combination, REV | OMIT, 0, 0},
@@ -383,7 +370,7 @@ static struct mode_info const mode_info[] =
 struct control_info
   {
     const char *name;		/* Name given on command line.  */
-    cc_t saneval;		/* Value to set for 'stty sane'.  */
+    cc_t saneval;		/* Value to set for `stty sane'.  */
     size_t offset;		/* Offset in c_cc.  */
   };
 
@@ -423,8 +410,7 @@ static struct control_info const control_info[] =
   {"lnext", CLNEXT, VLNEXT},
 #endif
 #ifdef VFLUSHO
-  {"flush", CFLUSHO, VFLUSHO},   /* deprecated compat option.  */
-  {"discard", CFLUSHO, VFLUSHO},
+  {"flush", CFLUSHO, VFLUSHO},
 #endif
 #ifdef VSTATUS
   {"status", CSTATUS, VSTATUS},
@@ -466,9 +452,6 @@ static int max_col;
 
 /* Current position, to know when to wrap. */
 static int current_col;
-
-/* Default "drain" mode for tcsetattr.  */
-static int tcsetattr_options = TCSADRAIN;
 
 static struct option const longopts[] =
 {
@@ -524,7 +507,8 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("\
@@ -535,11 +519,7 @@ Usage: %s [-F DEVICE | --file=DEVICE] [SETTING]...\n\
               program_name, program_name, program_name);
       fputs (_("\
 Print or change terminal characteristics.\n\
-"), stdout);
-
-      emit_mandatory_arg_note ();
-
-      fputs (_("\
+\n\
   -a, --all          print all current settings in human-readable form\n\
   -g, --save         print all current settings in a stty-readable form\n\
   -F, --file=DEVICE  open and use the specified DEVICE instead of stdin\n\
@@ -553,97 +533,45 @@ settings.  The underlying system defines which settings are available.\n\
 "), stdout);
       fputs (_("\
 \n\
-Special characters:\n"), stdout);
-#ifdef VFLUSHO
-      fputs (_("\
- * discard CHAR  CHAR will toggle discarding of output\n\
-"), stdout);
-#endif
-#ifdef VDSUSP
-      fputs (_("\
+Special characters:\n\
  * dsusp CHAR    CHAR will send a terminal stop signal once input flushed\n\
-"), stdout);
-#endif
-      fputs (_("\
    eof CHAR      CHAR will send an end of file (terminate the input)\n\
    eol CHAR      CHAR will end the line\n\
 "), stdout);
-#ifdef VEOL2
       fputs (_("\
  * eol2 CHAR     alternate CHAR for ending the line\n\
-"), stdout);
-#endif
-      fputs (_("\
    erase CHAR    CHAR will erase the last character typed\n\
    intr CHAR     CHAR will send an interrupt signal\n\
    kill CHAR     CHAR will erase the current line\n\
 "), stdout);
-#ifdef VLNEXT
       fputs (_("\
  * lnext CHAR    CHAR will enter the next character quoted\n\
-"), stdout);
-#endif
-#ifdef VSTATUS
-      fputs (_("\
- * status CHAR   CHAR will send an info signal\n\
-"), stdout);
-#endif
-      fputs (_("\
    quit CHAR     CHAR will send a quit signal\n\
-"), stdout);
-#if defined CREPRINT || defined VREPRINT
-      fputs (_("\
  * rprnt CHAR    CHAR will redraw the current line\n\
-"), stdout);
-#endif
-      fputs (_("\
    start CHAR    CHAR will restart the output after stopping it\n\
+"), stdout);
+      fputs (_("\
    stop CHAR     CHAR will stop the output\n\
    susp CHAR     CHAR will send a terminal stop signal\n\
-"), stdout);
-#ifdef VSWTCH
-      fputs (_("\
  * swtch CHAR    CHAR will switch to a different shell layer\n\
-"), stdout);
-#endif
-#ifdef VWERASE
-      fputs (_("\
  * werase CHAR   CHAR will erase the last word typed\n\
 "), stdout);
-#endif
       fputs (_("\
 \n\
 Special settings:\n\
    N             set the input and output speeds to N bauds\n\
-"), stdout);
-#ifdef TIOCGWINSZ
-      fputs (_("\
  * cols N        tell the kernel that the terminal has N columns\n\
  * columns N     same as cols N\n\
 "), stdout);
-#endif
-      printf (_("\
- * [-]drain      wait for transmission before applying settings (%s by default)\
-\n"), tcsetattr_options == TCSADRAIN ? _("on") : _("off"));
       fputs (_("\
    ispeed N      set the input speed to N\n\
-"), stdout);
-#ifdef HAVE_C_LINE
-      fputs (_("\
  * line N        use line discipline N\n\
-"), stdout);
-#endif
-      fputs (_("\
    min N         with -icanon, set N characters minimum for a completed read\n\
    ospeed N      set the output speed to N\n\
 "), stdout);
-#ifdef TIOCGWINSZ
       fputs (_("\
  * rows N        tell the kernel that the terminal has N rows\n\
  * size          print the number of rows and columns according to the kernel\n\
-"), stdout);
-#endif
-      fputs (_("\
    speed         print the terminal speed\n\
    time N        with -icanon, set read timeout of N tenths of a second\n\
 "), stdout);
@@ -652,32 +580,16 @@ Special settings:\n\
 Control settings:\n\
    [-]clocal     disable modem control signals\n\
    [-]cread      allow input to be received\n\
-"), stdout);
-#ifdef CRTSCTS
-      fputs (_("\
  * [-]crtscts    enable RTS/CTS handshaking\n\
-"), stdout);
-#endif
-#ifdef CDTRDSR
-      fputs (_("\
- * [-]cdtrdsr    enable DTR/DSR handshaking\n\
-"), stdout);
-#endif
-      fputs (_("\
    csN           set character size to N bits, N in [5..8]\n\
 "), stdout);
       fputs (_("\
-   [-]cstopb     use two stop bits per character (one with '-')\n\
+   [-]cstopb     use two stop bits per character (one with `-')\n\
    [-]hup        send a hangup signal when the last process closes the tty\n\
    [-]hupcl      same as [-]hup\n\
    [-]parenb     generate parity bit in output and expect parity bit in input\n\
-   [-]parodd     set odd parity (or even parity with '-')\n\
+   [-]parodd     set odd parity (even with `-')\n\
 "), stdout);
-#ifdef CMSPAR
-      fputs (_("\
- * [-]cmspar     use \"stick\" (mark/space) parity\n\
-"), stdout);
-#endif
       fputs (_("\
 \n\
 Input settings:\n\
@@ -685,34 +597,20 @@ Input settings:\n\
    [-]icrnl      translate carriage return to newline\n\
    [-]ignbrk     ignore break characters\n\
    [-]igncr      ignore carriage return\n\
+"), stdout);
+      fputs (_("\
    [-]ignpar     ignore characters with parity errors\n\
-"), stdout);
-#ifdef IMAXBEL
-      fputs (_("\
  * [-]imaxbel    beep and do not flush a full input buffer on a character\n\
-"), stdout);
-#endif
-      fputs (_("\
    [-]inlcr      translate newline to carriage return\n\
    [-]inpck      enable input parity checking\n\
    [-]istrip     clear high (8th) bit of input characters\n\
 "), stdout);
-#ifdef IUTF8
       fputs (_("\
  * [-]iutf8      assume input characters are UTF-8 encoded\n\
 "), stdout);
-#endif
-#ifdef IUCLC
       fputs (_("\
  * [-]iuclc      translate uppercase characters to lowercase\n\
-"), stdout);
-#endif
-#ifdef IXANY
-      fputs (_("\
  * [-]ixany      let any character restart output, not only start character\n\
-"), stdout);
-#endif
-      fputs (_("\
    [-]ixoff      enable sending of start/stop characters\n\
    [-]ixon       enable XON/XOFF flow control\n\
    [-]parmrk     mark parity errors (with a 255-0-character sequence)\n\
@@ -721,168 +619,59 @@ Input settings:\n\
       fputs (_("\
 \n\
 Output settings:\n\
-"), stdout);
-#ifdef BSDLY
-      fputs (_("\
  * bsN           backspace delay style, N in [0..1]\n\
-"), stdout);
-#endif
-#ifdef CRDLY
-      fputs (_("\
  * crN           carriage return delay style, N in [0..3]\n\
-"), stdout);
-#endif
-#ifdef FFDLY
-      fputs (_("\
  * ffN           form feed delay style, N in [0..1]\n\
-"), stdout);
-#endif
-#ifdef NLDLY
-      fputs (_("\
  * nlN           newline delay style, N in [0..1]\n\
 "), stdout);
-#endif
-#ifdef OCRNL
       fputs (_("\
  * [-]ocrnl      translate carriage return to newline\n\
-"), stdout);
-#endif
-#ifdef OFDEL
-      fputs (_("\
- * [-]ofdel      use delete characters for fill instead of NUL characters\n\
-"), stdout);
-#endif
-#ifdef OFILL
-      fputs (_("\
+ * [-]ofdel      use delete characters for fill instead of null characters\n\
  * [-]ofill      use fill (padding) characters instead of timing for delays\n\
-"), stdout);
-#endif
-#ifdef OLCUC
-      fputs (_("\
  * [-]olcuc      translate lowercase characters to uppercase\n\
-"), stdout);
-#endif
-#ifdef ONLCR
-      fputs (_("\
  * [-]onlcr      translate newline to carriage return-newline\n\
-"), stdout);
-#endif
-#ifdef ONLRET
-      fputs (_("\
  * [-]onlret     newline performs a carriage return\n\
 "), stdout);
-#endif
-#ifdef ONOCR
       fputs (_("\
  * [-]onocr      do not print carriage returns in the first column\n\
-"), stdout);
-#endif
-      fputs (_("\
    [-]opost      postprocess output\n\
-"), stdout);
-#if defined TABDLY || defined OXTABS
-      fputs (_("\
  * tabN          horizontal tab delay style, N in [0..3]\n\
  * tabs          same as tab0\n\
  * -tabs         same as tab3\n\
-"), stdout);
-#endif
-#ifdef VTDLY
-      fputs (_("\
  * vtN           vertical tab delay style, N in [0..1]\n\
 "), stdout);
-#endif
       fputs (_("\
 \n\
 Local settings:\n\
    [-]crterase   echo erase characters as backspace-space-backspace\n\
-"), stdout);
-#ifdef ECHOKE
-      fputs (_("\
  * crtkill       kill all line by obeying the echoprt and echoe settings\n\
  * -crtkill      kill all line by obeying the echoctl and echok settings\n\
 "), stdout);
-#endif
-#ifdef ECHOCTL
       fputs (_("\
- * [-]ctlecho    echo control characters in hat notation ('^c')\n\
-"), stdout);
-#endif
-      fputs (_("\
+ * [-]ctlecho    echo control characters in hat notation (`^c')\n\
    [-]echo       echo input characters\n\
-"), stdout);
-#ifdef ECHOCTL
-      fputs (_("\
  * [-]echoctl    same as [-]ctlecho\n\
-"), stdout);
-#endif
-      fputs (_("\
    [-]echoe      same as [-]crterase\n\
    [-]echok      echo a newline after a kill character\n\
 "), stdout);
-#ifdef ECHOKE
       fputs (_("\
  * [-]echoke     same as [-]crtkill\n\
-"), stdout);
-#endif
-      fputs (_("\
    [-]echonl     echo newline even if not echoing other characters\n\
-"), stdout);
-#ifdef ECHOPRT
-      fputs (_("\
- * [-]echoprt    echo erased characters backward, between '\\' and '/'\n\
-"), stdout);
-#endif
-#if defined EXTPROC || defined TIOCEXT
-      fputs (_("\
- * [-]extproc    enable \"LINEMODE\"; useful with high latency links\n\
-"), stdout);
-#endif
-#if defined FLUSHO
-      fputs (_("\
- * [-]flusho     discard output\n\
-"), stdout);
-#endif
-      printf (_("\
-   [-]icanon     enable special characters: %s\n\
+ * [-]echoprt    echo erased characters backward, between `\\' and '/'\n\
+   [-]icanon     enable erase, kill, werase, and rprnt special characters\n\
    [-]iexten     enable non-POSIX special characters\n\
-"), "erase, kill"
-#ifdef VWERASE
-    ", werase"
-#endif
-#if defined CREPRINT || defined VREPRINT
-    ", rprnt"
-#endif
-);
+"), stdout);
       fputs (_("\
    [-]isig       enable interrupt, quit, and suspend special characters\n\
    [-]noflsh     disable flushing after interrupt and quit special characters\n\
-"), stdout);
-#ifdef ECHOPRT
-      fputs (_("\
  * [-]prterase   same as [-]echoprt\n\
-"), stdout);
-#endif
-#ifdef TOSTOP
-      fputs (_("\
  * [-]tostop     stop background jobs that try to write to the terminal\n\
+ * [-]xcase      with icanon, escape with `\\' for uppercase characters\n\
 "), stdout);
-#endif
-#ifdef XCASE
-      fputs (_("\
- * [-]xcase      with icanon, escape with '\\' for uppercase characters\n\
-"), stdout);
-#endif
       fputs (_("\
 \n\
 Combination settings:\n\
-"), stdout);
-#if defined XCASE && defined IUCLC && defined OLCUC
-      fputs (_("\
  * [-]LCASE      same as [-]lcase\n\
-"), stdout);
-#endif
-      fputs (_("\
    cbreak        same as -icanon\n\
    -cbreak       same as icanon\n\
 "), stdout);
@@ -890,69 +679,22 @@ Combination settings:\n\
    cooked        same as brkint ignpar istrip icrnl ixon opost isig\n\
                  icanon, eof and eol characters to their default values\n\
    -cooked       same as raw\n\
+   crt           same as echoe echoctl echoke\n\
 "), stdout);
-      printf (_("\
-   crt           same as %s\n\
-"), "echoe"
-#ifdef ECHOCTL
-    " echoctl"
-#endif
-#ifdef ECHOKE
-    " echoke"
-#endif
-);
-      printf (_("\
-   dec           same as %s intr ^c erase 0177\n\
+      fputs (_("\
+   dec           same as echoe echoctl echoke -ixany intr ^c erase 0177\n\
                  kill ^u\n\
-"), "echoe"
-#ifdef ECHOCTL
-    " echoctl"
-#endif
-#ifdef ECHOKE
-    " echoke"
-#endif
-#ifdef IXANY
-    " -ixany"
-#endif
-);
-#ifdef IXANY
-      fputs (_("\
  * [-]decctlq    same as [-]ixany\n\
-"), stdout);
-#endif
-      fputs (_("\
    ek            erase and kill characters to their default values\n\
    evenp         same as parenb -parodd cs7\n\
+"), stdout);
+      fputs (_("\
    -evenp        same as -parenb cs8\n\
-"), stdout);
-#if defined XCASE && defined IUCLC && defined OLCUC
-      fputs (_("\
  * [-]lcase      same as xcase iuclc olcuc\n\
-"), stdout);
-#endif
-      fputs (_("\
    litout        same as -parenb -istrip -opost cs8\n\
    -litout       same as parenb istrip opost cs7\n\
-"), stdout);
-      printf (_("\
-   nl            same as %s\n\
-   -nl           same as %s\n\
-"), "-icrnl"
-#ifdef ONLCR
-   " -onlcr"
-#endif
-  , "icrnl -inlcr -igncr"
-#ifdef ONLCR
-   " onlcr"
-#endif
-#ifdef OCRNL
-   " -ocrnl"
-#endif
-#ifdef ONLRET
-   " -onlret"
-#endif
-);
-      fputs (_("\
+   nl            same as -icrnl -onlcr\n\
+   -nl           same as icrnl -inlcr -igncr onlcr -ocrnl -onlret\n\
 "), stdout);
       fputs (_("\
    oddp          same as parenb parodd cs7\n\
@@ -961,111 +703,20 @@ Combination settings:\n\
    pass8         same as -parenb -istrip cs8\n\
    -pass8        same as parenb istrip cs7\n\
 "), stdout);
-      printf (_("\
+      fputs (_("\
    raw           same as -ignbrk -brkint -ignpar -parmrk -inpck -istrip\n\
-                 -inlcr -igncr -icrnl -ixon -ixoff -icanon -opost\n\
-                 -isig%s min 1 time 0\n\
+                 -inlcr -igncr -icrnl  -ixon  -ixoff  -iuclc  -ixany\n\
+                 -imaxbel -opost -isig -icanon -xcase min 1 time 0\n\
    -raw          same as cooked\n\
-"),
-#ifdef IUCLC
-   " -iuclc"
-#endif
-#ifdef IXANY
-   " -ixany"
-#endif
-#ifdef IMAXBEL
-   " -imaxbel"
-#endif
-#ifdef XCASE
-   " -xcase"
-#endif
-);
-      printf (_("\
-   sane          same as cread -ignbrk brkint -inlcr -igncr icrnl\n\
-                 icanon iexten echo echoe echok -echonl -noflsh\n\
-                 %s\n\
-                 %s\n\
-                 %s,\n\
-                 all special characters to their default values\n\
-"),
-   "-ixoff"
-#ifdef IUTF8
-   " -iutf8"
-#endif
-#ifdef IUCLC
-   " -iuclc"
-#endif
-#ifdef IXANY
-   " -ixany"
-#endif
-#ifdef IMAXBEL
-   " imaxbel"
-#endif
-#ifdef XCASE
-   " -xcase"
-#endif
-#ifdef OLCUC
-   " -olcuc"
-#endif
-#ifdef OCRNL
-   " -ocrnl"
-#endif
-
- , "opost"
-#ifdef OFILL
-   " -ofill"
-#endif
-#ifdef ONLCR
-   " onlcr"
-#endif
-#ifdef ONOCR
-   " -onocr"
-#endif
-#ifdef ONLRET
-   " -onlret"
-#endif
-#ifdef NLDLY
-   " nl0"
-#endif
-#ifdef CRDLY
-   " cr0"
-#endif
-#ifdef TAB0
-   " tab0"
-#endif
-#ifdef BSDLY
-   " bs0"
-#endif
-#ifdef VTDLY
-   " vt0"
-#endif
-#ifdef FFDLY
-   " ff0"
-#endif
-
- , "isig"
-#ifdef TOSTOP
-   " -tostop"
-#endif
-#ifdef OFDEL
-   " -ofdel"
-#endif
-#ifdef ECHOPRT
-   " -echoprt"
-#endif
-#ifdef ECHOCTL
-   " echoctl"
-#endif
-#ifdef ECHOKE
-   " echoke"
-#endif
-#ifdef EXTPROC
-   " -extproc"
-#endif
-#ifdef FLUSHO
-   " -flusho"
-#endif
-);
+"), stdout);
+      fputs (_("\
+   sane          same as cread -ignbrk brkint -inlcr -igncr icrnl -iutf8\n\
+                 -ixoff -iuclc -ixany imaxbel opost -olcuc -ocrnl onlcr\n\
+                 -onocr -onlret -ofill -ofdel nl0 cr0 tab0 bs0 vt0 ff0\n\
+                 isig icanon iexten echo echoe echok -echonl -noflsh\n\
+                 -xcase -tostop -echoprt echoctl echoke, all special\n\
+                 characters to their default values\n\
+"), stdout);
       fputs (_("\
 \n\
 Handle the tty line connected to standard input.  Without arguments,\n\
@@ -1073,7 +724,7 @@ prints baud rate, line discipline, and deviations from stty sane.  In\n\
 settings, CHAR is taken literally, or coded as in ^c, 0x37, 0177 or\n\
 127; special values ^- or undef used to disable special characters.\n\
 "), stdout);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
@@ -1083,14 +734,14 @@ main (int argc, char **argv)
 {
   /* Initialize to all zeroes so there is no risk memcmp will report a
      spurious difference in an uninitialized portion of the structure.  */
-  static struct termios mode;
+  DECLARE_ZEROED_AGGREGATE (struct termios, mode);
 
   enum output_type output_type;
   int optc;
   int argi = 0;
   int opti = 1;
   bool require_set_attr;
-  bool speed_was_set _GL_UNUSED;
+  bool speed_was_set;
   bool verbose_output;
   bool recoverable_output;
   int k;
@@ -1147,11 +798,7 @@ main (int argc, char **argv)
         case_GETOPT_VERSION_CHAR (PROGRAM_NAME, AUTHORS);
 
         default:
-          /* Consider "drain" as an option rather than a setting,
-             to support: alias stty='stty -drain'  etc.  */
-          if (! STREQ (argv[argi + opti], "-drain")
-              && ! STREQ (argv[argi + opti], "drain"))
-            noargs = false;
+          noargs = false;
 
           /* Skip the argument containing this unrecognized option;
              the 2nd pass will analyze it.  */
@@ -1190,24 +837,24 @@ main (int argc, char **argv)
       int fdflags;
       device_name = file_name;
       if (fd_reopen (STDIN_FILENO, device_name, O_RDONLY | O_NONBLOCK, 0) < 0)
-        error (EXIT_FAILURE, errno, "%s", quotef (device_name));
+        error (EXIT_FAILURE, errno, "%s", device_name);
       if ((fdflags = fcntl (STDIN_FILENO, F_GETFL)) == -1
           || fcntl (STDIN_FILENO, F_SETFL, fdflags & ~O_NONBLOCK) < 0)
         error (EXIT_FAILURE, errno, _("%s: couldn't reset non-blocking mode"),
-               quotef (device_name));
+               device_name);
     }
   else
     device_name = _("standard input");
 
   if (tcgetattr (STDIN_FILENO, &mode))
-    error (EXIT_FAILURE, errno, "%s", quotef (device_name));
+    error (EXIT_FAILURE, errno, "%s", device_name);
 
   if (verbose_output || recoverable_output || noargs)
     {
       max_col = screen_columns ();
       current_col = 0;
       display_settings (output_type, &mode, device_name);
-      return EXIT_SUCCESS;
+      exit (EXIT_SUCCESS);
     }
 
   speed_was_set = false;
@@ -1216,7 +863,6 @@ main (int argc, char **argv)
     {
       char const *arg = argv[k];
       bool match_found = false;
-      bool not_set_attr = false;
       bool reversed = false;
       int i;
 
@@ -1228,22 +874,12 @@ main (int argc, char **argv)
           ++arg;
           reversed = true;
         }
-      if (STREQ (arg, "drain"))
-        {
-          tcsetattr_options = reversed ? TCSANOW : TCSADRAIN;
-          continue;
-        }
       for (i = 0; mode_info[i].name != NULL; ++i)
         {
           if (STREQ (arg, mode_info[i].name))
             {
-              if ((mode_info[i].flags & NO_SETATTR) == 0)
-                {
-                  match_found = set_mode (&mode_info[i], reversed, &mode);
-                  require_set_attr = true;
-                }
-              else
-                match_found = not_set_attr = true;
+              match_found = set_mode (&mode_info[i], reversed, &mode);
+              require_set_attr = true;
               break;
             }
         }
@@ -1271,7 +907,7 @@ main (int argc, char **argv)
                 }
             }
         }
-      if (!match_found || not_set_attr)
+      if (!match_found)
         {
           if (STREQ (arg, "ispeed"))
             {
@@ -1297,20 +933,6 @@ main (int argc, char **argv)
               speed_was_set = true;
               require_set_attr = true;
             }
-#ifdef TIOCEXT
-          /* This is the BSD interface to "extproc".
-            Even though it's an lflag, an ioctl is used to set it.  */
-          else if (STREQ (arg, "extproc"))
-            {
-              int val = ! reversed;
-
-              if (ioctl (STDIN_FILENO, TIOCEXT, &val) != 0)
-                {
-                  error (EXIT_FAILURE, errno, _("%s: error setting %s"),
-                         quotef_n (0, device_name), quote_n (1, arg));
-                }
-            }
-#endif
 #ifdef TIOCGWINSZ
           else if (STREQ (arg, "rows"))
             {
@@ -1385,23 +1007,23 @@ main (int argc, char **argv)
     {
       /* Initialize to all zeroes so there is no risk memcmp will report a
          spurious difference in an uninitialized portion of the structure.  */
-      static struct termios new_mode;
+      DECLARE_ZEROED_AGGREGATE (struct termios, new_mode);
 
-      if (tcsetattr (STDIN_FILENO, tcsetattr_options, &mode))
-        error (EXIT_FAILURE, errno, "%s", quotef (device_name));
+      if (tcsetattr (STDIN_FILENO, TCSADRAIN, &mode))
+        error (EXIT_FAILURE, errno, "%s", device_name);
 
       /* POSIX (according to Zlotnick's book) tcsetattr returns zero if
          it performs *any* of the requested operations.  This means it
-         can report 'success' when it has actually failed to perform
+         can report `success' when it has actually failed to perform
          some proper subset of the requested operations.  To detect
          this partial failure, get the current terminal attributes and
          compare them to the requested ones.  */
 
       if (tcgetattr (STDIN_FILENO, &new_mode))
-        error (EXIT_FAILURE, errno, "%s", quotef (device_name));
+        error (EXIT_FAILURE, errno, "%s", device_name);
 
       /* Normally, one shouldn't use memcmp to compare structures that
-         may have 'holes' containing uninitialized data, but we have been
+         may have `holes' containing uninitialized data, but we have been
          careful to initialize the storage of these two variables to all
          zeroes.  One might think it more efficient simply to compare the
          modified fields, but that would require enumerating those fields --
@@ -1425,7 +1047,7 @@ main (int argc, char **argv)
             {
               error (EXIT_FAILURE, 0,
                      _("%s: unable to perform all requested operations"),
-                     quotef (device_name));
+                     device_name);
 #ifdef TESTING
               {
                 size_t i;
@@ -1440,7 +1062,7 @@ main (int argc, char **argv)
         }
     }
 
-  return EXIT_SUCCESS;
+  exit (EXIT_SUCCESS);
 }
 
 /* Return false if not applied because not reversible; otherwise
@@ -1705,7 +1327,7 @@ set_window_size (int rows, int cols, char const *device_name)
   if (get_win_size (STDIN_FILENO, &win))
     {
       if (errno != EINVAL)
-        error (EXIT_FAILURE, errno, "%s", quotef (device_name));
+        error (EXIT_FAILURE, errno, "%s", device_name);
       memset (&win, 0, sizeof (win));
     }
 
@@ -1727,8 +1349,8 @@ set_window_size (int rows, int cols, char const *device_name)
      it's almost certainly a "struct winsize" instead.
 
      At any rate, the bug manifests itself when ws_row == 0; the symptom is
-     that ws_row is set to ws_col, and ws_col is set to (ws_xpixel<<16)
-     + ws_ypixel.  Since GNU stty sets rows and columns separately, this bug
+     that ws_row is set to ws_col, and ws_col is set to (ws_xpixel<<16) +
+     ws_ypixel.  Since GNU stty sets rows and columns separately, this bug
      caused "stty rows 0 cols 0" to set rows to cols and cols to 0, while
      "stty cols 0 rows 0" would do the right thing.  On a little-endian
      machine like the sun386i, the problem is the same, but for ws_col == 0.
@@ -1747,16 +1369,16 @@ set_window_size (int rows, int cols, char const *device_name)
       win.ws_col = 1;
 
       if (ioctl (STDIN_FILENO, TIOCSWINSZ, (char *) &win))
-        error (EXIT_FAILURE, errno, "%s", quotef (device_name));
+        error (EXIT_FAILURE, errno, "%s", device_name);
 
       if (ioctl (STDIN_FILENO, TIOCSSIZE, (char *) &ttysz))
-        error (EXIT_FAILURE, errno, "%s", quotef (device_name));
+        error (EXIT_FAILURE, errno, "%s", device_name);
       return;
     }
 # endif
 
   if (ioctl (STDIN_FILENO, TIOCSWINSZ, (char *) &win))
-    error (EXIT_FAILURE, errno, "%s", quotef (device_name));
+    error (EXIT_FAILURE, errno, "%s", device_name);
 }
 
 static void
@@ -1767,11 +1389,10 @@ display_window_size (bool fancy, char const *device_name)
   if (get_win_size (STDIN_FILENO, &win))
     {
       if (errno != EINVAL)
-        error (EXIT_FAILURE, errno, "%s", quotef (device_name));
+        error (EXIT_FAILURE, errno, "%s", device_name);
       if (!fancy)
         error (EXIT_FAILURE, 0,
-               _("%s: no size information for this device"),
-               quotef (device_name));
+               _("%s: no size information for this device"), device_name);
     }
   else
     {
@@ -1811,7 +1432,7 @@ screen_columns (void)
   }
 }
 
-static tcflag_t * _GL_ATTRIBUTE_PURE
+static tcflag_t *
 mode_type_flag (enum mode_type type, struct termios *mode)
 {
   switch (type)
@@ -1877,12 +1498,6 @@ display_changed (struct termios *mode)
     {
       if (mode->c_cc[control_info[i].offset] == control_info[i].saneval)
         continue;
-
-#ifdef VFLUSHO
-      /* 'flush' is the deprecated equivalent of 'discard'.  */
-      if (STREQ (control_info[i].name, "flush"))
-        continue;
-#endif
       /* If swtch is the same as susp, don't print both.  */
 #if VSWTCH == VSUSP
       if (STREQ (control_info[i].name, "swtch"))
@@ -1928,12 +1543,6 @@ display_changed (struct termios *mode)
 
       bitsp = mode_type_flag (mode_info[i].type, mode);
       mask = mode_info[i].mask ? mode_info[i].mask : mode_info[i].bits;
-
-      /* bitsp would be NULL only for "combination" modes, yet those
-         are filtered out above via the OMIT flag.  Tell static analysis
-         tools that it's ok to dereference bitsp here.  */
-      assert (bitsp);
-
       if ((*bitsp & mask) == mode_info[i].bits)
         {
           if (mode_info[i].flags & SANE_UNSET)
@@ -1973,11 +1582,6 @@ display_all (struct termios *mode, char const *device_name)
 
   for (i = 0; ! STREQ (control_info[i].name, "min"); ++i)
     {
-#ifdef VFLUSHO
-      /* 'flush' is the deprecated equivalent of 'discard'.  */
-      if (STREQ (control_info[i].name, "flush"))
-        continue;
-#endif
       /* If swtch is the same as susp, don't print both.  */
 #if VSWTCH == VSUSP
       if (STREQ (control_info[i].name, "swtch"))
@@ -2016,7 +1620,6 @@ display_all (struct termios *mode, char const *device_name)
 
       bitsp = mode_type_flag (mode_info[i].type, mode);
       mask = mode_info[i].mask ? mode_info[i].mask : mode_info[i].bits;
-      assert (bitsp); /* See the identical assertion and comment above.  */
       if ((*bitsp & mask) == mode_info[i].bits)
         wrapf ("%s", mode_info[i].name);
       else if (mode_info[i].flags & REV)
@@ -2190,7 +1793,7 @@ static struct speed_map const speeds[] =
   {NULL, 0, 0}
 };
 
-static speed_t _GL_ATTRIBUTE_PURE
+static speed_t
 string_to_baud (const char *arg)
 {
   int i;
@@ -2201,7 +1804,7 @@ string_to_baud (const char *arg)
   return (speed_t) -1;
 }
 
-static unsigned long int _GL_ATTRIBUTE_PURE
+static unsigned long int
 baud_to_value (speed_t speed)
 {
   int i;
@@ -2229,9 +1832,6 @@ sane_mode (struct termios *mode)
 
   for (i = 0; mode_info[i].name != NULL; ++i)
     {
-      if (mode_info[i].flags & NO_SETATTR)
-        continue;
-
       if (mode_info[i].flags & SANE_SET)
         {
           bitsp = mode_type_flag (mode_info[i].type, mode);
@@ -2246,7 +1846,7 @@ sane_mode (struct termios *mode)
 }
 
 /* Return a string that is the printable representation of character CH.  */
-/* Adapted from 'cat' by Torbjorn Granlund.  */
+/* Adapted from `cat' by Torbjorn Granlund.  */
 
 static const char *
 visible (cc_t ch)
@@ -2303,5 +1903,11 @@ visible (cc_t ch)
 static unsigned long int
 integer_arg (const char *s, unsigned long int maxval)
 {
-  return xnumtoumax (s, 0, 0, maxval, "bB", _("invalid integer argument"), 0);
+  unsigned long int value;
+  if (xstrtoul (s, NULL, 0, &value, "bB") != LONGINT_OK || maxval < value)
+    {
+      error (0, 0, _("invalid integer argument %s"), quote (s));
+      usage (EXIT_FAILURE);
+    }
+  return value;
 }

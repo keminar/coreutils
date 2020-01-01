@@ -1,6 +1,6 @@
 /* declarations for strftime.c
 
-   Copyright (C) 2002, 2004, 2008-2016 Free Software Foundation, Inc.
+   Copyright (C) 2002, 2004, 2008 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -17,17 +17,10 @@
 
 #include <time.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /* Just like strftime, but with two more arguments:
    POSIX requires that strftime use the local timezone information.
-   Use the timezone __TZ instead.  Use __NS as the number of
-   nanoseconds in the %N directive.  */
+   When __UTC is nonzero and tm->tm_zone is NULL or the empty string,
+   use UTC instead.  Use __NS as the number of nanoseconds in the
+   %N directive.  */
 size_t nstrftime (char *, size_t, char const *, struct tm const *,
-                  timezone_t __tz, int __ns);
-
-#ifdef __cplusplus
-}
-#endif
+		  int __utc, int __ns);

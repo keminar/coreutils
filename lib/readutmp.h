@@ -1,6 +1,6 @@
 /* Declarations for GNU's read utmp module.
 
-   Copyright (C) 1992-2007, 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 1992-2007 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -47,8 +47,6 @@
 #  define END_UTMP_ENT endutxent
 #  ifdef HAVE_UTMPXNAME
 #   define UTMP_NAME_FUNCTION utmpxname
-#  elif defined UTXDB_ACTIVE
-#   define UTMP_NAME_FUNCTION(x) setutxdb (UTXDB_ACTIVE, x)
 #  endif
 
 #  if HAVE_STRUCT_UTMPX_UT_EXIT_E_TERMINATION
@@ -75,7 +73,7 @@
 
 #  include <utmp.h>
 #  if !HAVE_DECL_GETUTENT
-    struct utmp *getutent (void);
+    struct utmp *getutent();
 #  endif
 #  define UTMP_STRUCT_NAME utmp
 #  define UT_TIME_MEMBER(UT_PTR) ((UT_PTR)->ut_time)
@@ -199,9 +197,9 @@ enum { UT_USER_SIZE = sizeof UT_USER ((STRUCT_UTMP *) 0) };
 #  define UT_TYPE_USER_PROCESS(U) 0
 # endif
 
-# define IS_USER_PROCESS(U)                                     \
-   (UT_USER (U)[0]                                              \
-    && (UT_TYPE_USER_PROCESS (U)                                \
+# define IS_USER_PROCESS(U)					\
+   (UT_USER (U)[0]						\
+    && (UT_TYPE_USER_PROCESS (U)				\
         || (UT_TYPE_NOT_DEFINED && UT_TIME_MEMBER (U) != 0)))
 
 /* Options for read_utmp.  */
@@ -213,6 +211,6 @@ enum
 
 char *extract_trimmed_name (const STRUCT_UTMP *ut);
 int read_utmp (char const *file, size_t *n_entries, STRUCT_UTMP **utmp_buf,
-               int options);
+	       int options);
 
 #endif /* __READUTMP_H__ */

@@ -1,6 +1,9 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* accept.c --- wrappers for Windows accept function
 
-   Copyright (C) 2008-2016 Free Software Foundation, Inc.
+   Copyright (C) 2008 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -29,24 +32,14 @@
 #undef accept
 
 int
-rpl_accept (int fd, struct sockaddr *addr, socklen_t *addrlen)
+rpl_accept (int fd, struct sockaddr *addr, int *addrlen)
 {
-  SOCKET sock = FD_TO_SOCKET (fd);
-
-  if (sock == INVALID_SOCKET)
+  SOCKET fh = accept (FD_TO_SOCKET (fd), addr, addrlen);
+  if (fh == INVALID_SOCKET)
     {
-      errno = EBADF;
+      set_winsock_errno ();
       return -1;
     }
   else
-    {
-      SOCKET fh = accept (sock, addr, addrlen);
-      if (fh == INVALID_SOCKET)
-        {
-          set_winsock_errno ();
-          return -1;
-        }
-      else
-        return SOCKET_TO_FD (fh);
-    }
+    return SOCKET_TO_FD (fh);
 }

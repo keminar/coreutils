@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /*
- * Copyright (C) 2008-2016 Free Software Foundation, Inc.
+ * Copyright (C) 2008, 2009 Free Software Foundation
  * Written by Simon Josefsson.
  *
  * This program is free software: you can redistribute it and/or modify
@@ -19,10 +22,6 @@
 
 /* Get gethostname() declaration.  */
 #include <unistd.h>
-
-#include "signature.h"
-SIGNATURE_CHECK (gethostname, int, (char *, size_t));
-
 /* Get HOST_NAME_MAX definition.  */
 #include <limits.h>
 
@@ -33,7 +32,7 @@ SIGNATURE_CHECK (gethostname, int, (char *, size_t));
 #define NOHOSTNAME "magic-gnulib-test-string"
 
 int
-main (int argc, char *argv[] _GL_UNUSED)
+main (int argc, char *argv[])
 {
   char buf[HOST_NAME_MAX];
   int rc;

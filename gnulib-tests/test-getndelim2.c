@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Test of getndelim2() function.
-   Copyright (C) 2008-2016 Free Software Foundation, Inc.
+   Copyright (C) 2008 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -12,22 +15,33 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program; if not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software Foundation,
+   Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.  */
 
 /* Written by Eric Blake <ebb9@byu.net>, 2008.  */
 
 #include <config.h>
 
-#include "getndelim2.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "macros.h"
+#include "getndelim2.h"
+
+#define ASSERT(expr) \
+  do									     \
+    {									     \
+      if (!(expr))							     \
+        {								     \
+          fprintf (stderr, "%s:%d: assertion failed\n", __FILE__, __LINE__); \
+          fflush (stderr);						     \
+          abort ();							     \
+        }								     \
+    }									     \
+  while (0)
 
 int
-main (void)
+main (int argc, char **argv)
 {
   FILE *f;
   char *line = NULL;
@@ -103,7 +117,7 @@ main (void)
   {
     int i;
     for (i = 0; i < 16; i++)
-      fprintf (f, "%500x%c", i + 0u, i % 2 ? '\n' : '\r');
+      fprintf (f, "%500x%c", i, i % 2 ? '\n' : '\r');
   }
   rewind (f);
   {
@@ -133,13 +147,13 @@ main (void)
     ASSERT (strcmp (buffer, line + 501 * 13) == 0);
 
     result = getndelim2 (&line, &len, 501 * 14 - 1, GETNLINE_NO_LIMIT,
-                         EOF, EOF, f);
+			 EOF, EOF, f);
     ASSERT (result == 1);
     buffer[500] = '\n';
     ASSERT (strcmp (buffer, line + 501 * 13) == 0);
 
     result = getndelim2 (&line, &len, 501 * 14 - 1, GETNLINE_NO_LIMIT,
-                         EOF, EOF, f);
+			 EOF, EOF, f);
     buffer[500] = '\0';
     ASSERT (strcmp (buffer, line + 501 * 13) == 0);
     ASSERT (result == -1);

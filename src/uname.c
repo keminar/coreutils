@@ -1,6 +1,7 @@
 /* uname -- print system information
 
-   Copyright (C) 1989-2016 Free Software Foundation, Inc.
+   Copyright (C) 1989, 1992, 1993, 1996, 1997, 1999-2005,
+   2007-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -54,13 +55,13 @@
 #include "quote.h"
 #include "uname.h"
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME (uname_mode == UNAME_UNAME ? "uname" : "arch")
 
 #define AUTHORS proper_name ("David MacKenzie")
 #define ARCH_AUTHORS "David MacKenzie", "Karel Zak"
 
-/* Values that are bitwise or'd into 'toprint'. */
+/* Values that are bitwise or'd into `toprint'. */
 /* Kernel name. */
 #define PRINT_KERNEL_NAME 1
 
@@ -114,7 +115,8 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("Usage: %s [OPTION]...\n"), program_name);
@@ -133,8 +135,8 @@ Print certain system information.  With no OPTION, same as -s.\n\
           fputs (_("\
   -v, --kernel-version     print the kernel version\n\
   -m, --machine            print the machine hardware name\n\
-  -p, --processor          print the processor type (non-portable)\n\
-  -i, --hardware-platform  print the hardware platform (non-portable)\n\
+  -p, --processor          print the processor type or \"unknown\"\n\
+  -i, --hardware-platform  print the hardware platform or \"unknown\"\n\
   -o, --operating-system   print the operating system\n\
 "), stdout);
         }
@@ -148,7 +150,7 @@ Print machine architecture.\n\
 
       fputs (HELP_OPTION_DESCRIPTION, stdout);
       fputs (VERSION_OPTION_DESCRIPTION, stdout);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
@@ -258,7 +260,7 @@ decode_switches (int argc, char **argv)
 int
 main (int argc, char **argv)
 {
-  static char unknown[] = "unknown";
+  static char const unknown[] = "unknown";
 
   /* Mask indicating which elements to print. */
   unsigned int toprint = 0;
@@ -299,34 +301,12 @@ main (int argc, char **argv)
 
   if (toprint & PRINT_PROCESSOR)
     {
-      char *element = unknown;
+      char const *element = unknown;
 #if HAVE_SYSINFO && defined SI_ARCHITECTURE
       {
         static char processor[257];
         if (0 <= sysinfo (SI_ARCHITECTURE, processor, sizeof processor))
           element = processor;
-      }
-#else
-      {
-	struct utsname u;
-	uname(&u);
-	element = u.machine;
-#ifdef linux
-	if(!strcmp(element, "i686")) { /* Check for Athlon */
-		char cinfo[1024];
-		FILE *f=fopen("/proc/cpuinfo", "r");
-		if(f) {
-			while(fgets(cinfo, 1024, f)) {
-				if(!strncmp(cinfo, "vendor_id", 9)) {
-					if(strstr(cinfo, "AuthenticAMD"))
-						element="athlon";
-					break;
-				}
-			}
-			fclose(f);
-		}
-	}
-#endif
       }
 #endif
 #ifdef UNAME_PROCESSOR
@@ -343,9 +323,9 @@ main (int argc, char **argv)
           if (element == unknown)
             {
               cpu_type_t cputype;
-              size_t cs = sizeof cputype;
+              size_t s = sizeof cputype;
               NXArchInfo const *ai;
-              if (sysctlbyname ("hw.cputype", &cputype, &cs, NULL, 0) == 0
+              if (sysctlbyname ("hw.cputype", &cputype, &s, NULL, 0) == 0
                   && (ai = NXGetArchInfoFromCpuType (cputype,
                                                      CPU_SUBTYPE_MULTIPLE))
                   != NULL)
@@ -353,7 +333,7 @@ main (int argc, char **argv)
 
               /* Hack "safely" around the ppc vs. powerpc return value. */
               if (cputype == CPU_TYPE_POWERPC
-                  && STRNCMP_LIT (element, "ppc") == 0)
+                  && strncmp (element, "ppc", 3) == 0)
                 element = "powerpc";
             }
 # endif
@@ -365,21 +345,13 @@ main (int argc, char **argv)
 
   if (toprint & PRINT_HARDWARE_PLATFORM)
     {
-      char *element = unknown;
+      char const *element = unknown;
 #if HAVE_SYSINFO && defined SI_PLATFORM
       {
         static char hardware_platform[257];
         if (0 <= sysinfo (SI_PLATFORM,
                           hardware_platform, sizeof hardware_platform))
           element = hardware_platform;
-      }
-#else
-      {
-	struct utsname u;
-	uname(&u);
-	element = u.machine;
-	if(strlen(element)==4 && element[0]=='i' && element[2]=='8' && element[3]=='6')
-		element[1]='3';
       }
 #endif
 #ifdef UNAME_HARDWARE_PLATFORM
@@ -401,5 +373,5 @@ main (int argc, char **argv)
 
   putchar ('\n');
 
-  return EXIT_SUCCESS;
+  exit (EXIT_SUCCESS);
 }

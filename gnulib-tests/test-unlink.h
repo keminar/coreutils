@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Tests of unlink.
-   Copyright (C) 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -25,6 +28,9 @@
 static int
 test_unlink_func (int (*func) (char const *name), bool print)
 {
+  /* Remove any leftovers from a previous partial run.  */
+  ASSERT (system ("rm -rf " BASE "*") == 0);
+
   /* Setup.  */
   ASSERT (mkdir (BASE "dir", 0700) == 0);
   ASSERT (close (creat (BASE "dir/file", 0600)) == 0);
@@ -65,17 +71,14 @@ test_unlink_func (int (*func) (char const *name), bool print)
       ASSERT (func (BASE "dir/file") == 0);
       ASSERT (rmdir (BASE "dir") == 0);
       if (print)
-        fputs ("skipping test: symlinks not supported on this file system\n",
-               stderr);
+	fputs ("skipping test: symlinks not supported on this filesystem\n",
+	       stderr);
       return 77;
     }
   if (cannot_unlink_dir ())
     ASSERT (func (BASE "link/") == -1);
   ASSERT (func (BASE "link") == 0);
   ASSERT (symlink (BASE "dir/file", BASE "link") == 0);
-  errno = 0;
-  ASSERT (func (BASE "link/") == -1);
-  ASSERT (errno == ENOTDIR);
   /* Order here proves unlink of a symlink does not follow through to
      the file.  */
   ASSERT (func (BASE "link") == 0);

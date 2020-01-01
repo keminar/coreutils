@@ -1,7 +1,7 @@
 /* quotearg.h - quote arguments for output
 
-   Copyright (C) 1998-2002, 2004, 2006, 2008-2016 Free Software Foundation,
-   Inc.
+   Copyright (C) 1998, 1999, 2000, 2001, 2002, 2004, 2006, 2008 Free
+   Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -73,37 +73,6 @@ enum quoting_style
     */
     shell_always_quoting_style,
 
-    /* Quote names for the shell if they contain shell metacharacters
-       or other problematic characters (ls --quoting-style=shell-escape).
-       Non printable characters are quoted using the $'...' syntax,
-       which originated in ksh93 and is widely supported by most shells,
-       and proposed for inclusion in POSIX.
-
-       quotearg_buffer:
-       "simple", "''$'\\0'' '$'\\t\\n'\\''\"'$'\\033''??/\\'", "a:b"
-       quotearg:
-       "simple", "''$'\\0'' '$'\\t\\n'\\''\"'$'\\033''??/\\'", "a:b"
-       quotearg_colon:
-       "simple", "''$'\\0'' '$'\\t\\n'\\''\"'$'\\033''??/\\'", "'a:b'"
-    */
-    shell_escape_quoting_style,
-
-    /* Quote names for the shell even if they would normally not
-       require quoting (ls --quoting-style=shell-escape).
-       Non printable characters are quoted using the $'...' syntax,
-       which originated in ksh93 and is widely supported by most shells,
-       and proposed for inclusion in POSIX.  Behaves like
-       shell_escape_quoting_style if QA_ELIDE_OUTER_QUOTES is in effect.
-
-       quotearg_buffer:
-       "simple", "''$'\\0'' '$'\\t\\n'\\''\"'$'\\033''??/\'", "a:b"
-       quotearg:
-       "simple", "''$'\\0'' '$'\\t\\n'\\''\"'$'\\033''??/\'", "a:b"
-       quotearg_colon:
-       "simple", "''$'\\0'' '$'\\t\\n'\\''\"'$'\\033''??/\'", "'a:b'"
-    */
-    shell_escape_always_quoting_style,
-
     /* Quote names as for a C language string (ls --quoting-style=c).
        Behaves like c_maybe_quoting_style if QA_ELIDE_OUTER_QUOTES is
        in effect.  Split into consecutive strings if
@@ -143,10 +112,8 @@ enum quoting_style
     */
     escape_quoting_style,
 
-    /* Like clocale_quoting_style, but use single quotes in the
-       default C locale or if the program does not use gettext
-       (ls --quoting-style=locale).  For UTF-8 locales, quote
-       characters will use Unicode.
+    /* Like clocale_quoting_style, but quote `like this' instead of
+       "like this" in the default C locale (ls --quoting-style=locale).
 
        LC_MESSAGES=C
        quotearg_buffer:
@@ -278,7 +245,7 @@ struct quoting_options;
 struct quoting_options *clone_quoting_options (struct quoting_options *o);
 
 /* Get the value of O's quoting style.  If O is null, use the default.  */
-enum quoting_style get_quoting_style (struct quoting_options const *o);
+enum quoting_style get_quoting_style (struct quoting_options *o);
 
 /* In O (or in the default if O is null),
    set the value of the quoting style to S.  */
@@ -309,8 +276,8 @@ int set_quoting_flags (struct quoting_options *o, int i);
    that has special meaning after a backslash (for example, "\t" for
    tab).  */
 void set_custom_quoting (struct quoting_options *o,
-                         char const *left_quote,
-                         char const *right_quote);
+			 char const *left_quote,
+			 char const *right_quote);
 
 /* Place into buffer BUFFER (of size BUFFERSIZE) a quoted version of
    argument ARG (of size ARGSIZE), using O to control quoting.
@@ -324,14 +291,14 @@ void set_custom_quoting (struct quoting_options *o,
    not -1, the style of O does not use backslash escapes, and the
    flags of O do not request elision of null bytes.*/
 size_t quotearg_buffer (char *buffer, size_t buffersize,
-                        char const *arg, size_t argsize,
-                        struct quoting_options const *o);
+			char const *arg, size_t argsize,
+			struct quoting_options const *o);
 
 /* Like quotearg_buffer, except return the result in a newly allocated
    buffer.  It is the caller's responsibility to free the result.  The
    result will not contain embedded null bytes.  */
 char *quotearg_alloc (char const *arg, size_t argsize,
-                      struct quoting_options const *o);
+		      struct quoting_options const *o);
 
 /* Like quotearg_alloc, except that the length of the result,
    excluding the terminating null byte, is stored into SIZE if it is
@@ -340,7 +307,7 @@ char *quotearg_alloc (char const *arg, size_t argsize,
    backslash escapes, and the flags of O do not request elision of
    null bytes.*/
 char *quotearg_alloc_mem (char const *arg, size_t argsize,
-                          size_t *size, struct quoting_options const *o);
+			  size_t *size, struct quoting_options const *o);
 
 /* Use storage slot N to return a quoted version of the string ARG.
    Use the default quoting options.
@@ -371,14 +338,14 @@ char *quotearg_n_style (int n, enum quoting_style s, char const *arg);
    argument ARG of size ARGSIZE.  This is like quotearg_n_style
    (N, S, ARG), except it can quote null bytes.  */
 char *quotearg_n_style_mem (int n, enum quoting_style s,
-                            char const *arg, size_t argsize);
+			    char const *arg, size_t argsize);
 
 /* Equivalent to quotearg_n_style (0, S, ARG).  */
 char *quotearg_style (enum quoting_style s, char const *arg);
 
 /* Equivalent to quotearg_n_style_mem (0, S, ARG, ARGSIZE).  */
 char *quotearg_style_mem (enum quoting_style s,
-                          char const *arg, size_t argsize);
+			  char const *arg, size_t argsize);
 
 /* Like quotearg (ARG), except also quote any instances of CH.
    See set_char_quoting for a description of acceptable CH values.  */
@@ -393,31 +360,28 @@ char *quotearg_colon (char const *arg);
 /* Like quotearg_colon (ARG), except it can quote null bytes.  */
 char *quotearg_colon_mem (char const *arg, size_t argsize);
 
-/* Like quotearg_n_style, except with ':' quoting enabled.  */
-char *quotearg_n_style_colon (int n, enum quoting_style s, char const *arg);
-
 /* Like quotearg_n_style (N, S, ARG) but with S as custom_quoting_style
    with left quote as LEFT_QUOTE and right quote as RIGHT_QUOTE.  See
    set_custom_quoting for a description of acceptable LEFT_QUOTE and
    RIGHT_QUOTE values.  */
 char *quotearg_n_custom (int n, char const *left_quote,
-                         char const *right_quote, char const *arg);
+			 char const *right_quote, char const *arg);
 
 /* Like quotearg_n_custom (N, LEFT_QUOTE, RIGHT_QUOTE, ARG) except it
    can quote null bytes.  */
 char *quotearg_n_custom_mem (int n, char const *left_quote,
-                             char const *right_quote,
-                             char const *arg, size_t argsize);
+			     char const *right_quote,
+			     char const *arg, size_t argsize);
 
 /* Equivalent to quotearg_n_custom (0, LEFT_QUOTE, RIGHT_QUOTE, ARG).  */
 char *quotearg_custom (char const *left_quote, char const *right_quote,
-                       char const *arg);
+		       char const *arg);
 
 /* Equivalent to quotearg_n_custom_mem (0, LEFT_QUOTE, RIGHT_QUOTE, ARG,
-                                        ARGSIZE).  */
+					ARGSIZE).  */
 char *quotearg_custom_mem (char const *left_quote,
-                           char const *right_quote,
-                           char const *arg, size_t argsize);
+			   char const *right_quote,
+			   char const *arg, size_t argsize);
 
 /* Free any dynamically allocated memory.  */
 void quotearg_free (void);

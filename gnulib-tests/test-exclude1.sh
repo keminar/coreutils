@@ -1,6 +1,6 @@
 #! /bin/sh
 # Test suite for exclude.
-# Copyright (C) 2009-2016 Free Software Foundation, Inc.
+# Copyright (C) 2009 Free Software Foundation, Inc.
 # This file is part of the GNUlib Library.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,18 +16,19 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-. "${srcdir=.}/init.sh"; path_prepend_ .
-fail=0
+TMP=excltmp.$$
+LIST=flist.$$
+ERR=0
 
 # Test literal matches
 
-cat > in <<EOT
+cat > $LIST <<EOT
 foo*
 bar
 Baz
 EOT
 
-cat > expected <<EOT
+cat > $TMP <<EOT
 foo: 0
 foo*: 1
 bar: 1
@@ -36,15 +37,9 @@ baz: 0
 bar/qux: 0
 EOT
 
-test-exclude in -- foo 'foo*' bar foobar baz bar/qux > out || exit $?
+./test-exclude$EXEEXT $LIST -- foo 'foo*' bar foobar baz bar/qux |
+ tr -d '\015' |
+ diff -c $TMP - || ERR=1
 
-# Find out how to remove carriage returns from output. Solaris /usr/ucb/tr
-# does not understand '\r'.
-case $(echo r | tr -d '\r') in '') cr='\015';; *) cr='\r';; esac
-
-# normalize output
-LC_ALL=C tr -d "$cr" < out > k && mv k out
-
-compare expected out || fail=1
-
-Exit $fail
+rm -f $TMP $LIST
+exit $ERR

@@ -3,12 +3,6 @@
 # Show all commands when run with environment variable VERBOSE=yes.
 test -z "$VERBOSE" || set -x
 
-test "$USE_ACL" = 0 &&
-  {
-    echo "Skipping test: insufficient ACL support"
-    exit 77
-  }
-
 # func_tmpdir
 # creates a temporary directory.
 # Sets variable
@@ -60,8 +54,8 @@ cd "$builddir" ||
   # Classification of the platform according to the programs available for
   # manipulating ACLs.
   # Possible values are:
-  #   linux, cygwin, freebsd, solaris, hpux, hpuxjfs, osf1, aix, macosx, irix, none.
-  # TODO: Support also native Windows platforms (mingw).
+  #   linux, cygwin, freebsd, solaris, hpux, osf1, aix, macosx, irix, none.
+  # TODO: Support also native Win32 platforms (mingw).
   acl_flavor=none
   if (getfacl tmpfile0 >/dev/null) 2>/dev/null; then
     # Platforms with the getfacl and setfacl programs.
@@ -88,30 +82,18 @@ cd "$builddir" ||
     if (lsacl / >/dev/null) 2>/dev/null; then
       # Platforms with the lsacl and chacl programs.
       # HP-UX, sometimes also IRIX.
-      if (getacl tmpfile0 >/dev/null) 2>/dev/null; then
-        # HP-UX 11.11 or newer.
-        acl_flavor=hpuxjfs
-      else
-        # HP-UX 11.00.
-        acl_flavor=hpux
-      fi
+      acl_flavor=hpux
     else
       if (getacl tmpfile0 >/dev/null) 2>/dev/null; then
-        # Tru64, NonStop Kernel.
-        if (getacl -m tmpfile0 >/dev/null) 2>/dev/null; then
-          # Tru64.
-          acl_flavor=osf1
-        else
-          # NonStop Kernel.
-          acl_flavor=nsk
-        fi
+        # Tru64.
+        acl_flavor=osf1
       else
         if (aclget tmpfile0 >/dev/null) 2>/dev/null; then
           # AIX.
           acl_flavor=aix
         else
           if (fsaclctl -v >/dev/null) 2>/dev/null; then
-            # Mac OS X.
+            # MacOS X.
             acl_flavor=macosx
           else
             if test -f /sbin/chacl; then
@@ -184,16 +166,8 @@ cd "$builddir" ||
             orig=`lsacl tmpfile0 | sed -e 's/ tmpfile0$//'`
             chacl -r "${orig}($auid.%,--x)" tmpfile0
             ;;
-          hpuxjfs)
-            orig=`lsacl tmpfile0 | sed -e 's/ tmpfile0$//'`
-            chacl -r "${orig}($auid.%,--x)" tmpfile0 \
-              || setacl -m user:$auid:1 tmpfile0
-            ;;
           osf1)
             setacl -u user:$auid:1 tmpfile0
-            ;;
-          nsk)
-            setacl -m user:$auid:1 tmpfile0
             ;;
           aix)
             { aclget tmpfile0 | sed -e 's/disabled$/enabled/'; echo "        permit --x u:$auid"; } | aclput tmpfile0

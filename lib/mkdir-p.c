@@ -1,7 +1,7 @@
 /* mkdir-p.c -- Ensure that a directory and its parents exist.
 
-   Copyright (C) 1990, 1997-2000, 2002-2007, 2009-2016 Free Software
-   Foundation, Inc.
+   Copyright (C) 1990, 1997, 1998, 1999, 2000, 2002, 2003, 2004, 2005,
+   2006, 2007 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -52,9 +52,9 @@
    is retained on return if the ancestor directories could not be
    created.
 
-   Create DIR as a new directory, using mkdir with permissions MODE;
-   here, MODE is affected by the umask in the usual way.  It is also
-   OK if MAKE_ANCESTOR is not null and a directory DIR already exists.
+   Create DIR as a new directory with using mkdir with permissions
+   MODE.  It is also OK if MAKE_ANCESTOR is not null and a
+   directory DIR already exists.
 
    Call ANNOUNCE (DIR, OPTIONS) just after successfully making DIR,
    even if some of the following actions fail.
@@ -65,14 +65,15 @@
    Set DIR's mode bits to MODE, except preserve any of the bits that
    correspond to zero bits in MODE_BITS.  In other words, MODE_BITS is
    a mask that specifies which of DIR's mode bits should be set or
-   cleared.  Changing the mode in this way is necessary if DIR already
-   existed, if MODE and MODE_BITS specify non-permissions bits like
-   S_ISUID, or if MODE and MODE_BITS specify permissions bits that are
-   masked out by the umask.  MODE_BITS should be a subset of
-   CHMOD_MODE_BITS.
+   cleared.  MODE should be a subset of MODE_BITS, which in turn
+   should be a subset of CHMOD_MODE_BITS.  Changing the mode in this
+   way is necessary if DIR already existed or if MODE and MODE_BITS
+   specify non-permissions bits like S_ISUID.
 
    However, if PRESERVE_EXISTING is true and DIR already exists,
    do not attempt to set DIR's ownership and file mode bits.
+
+   This implementation assumes the current umask is zero.
 
    Return true if DIR exists as a directory with the proper ownership
    and file mode bits when done, or if a child process has been
@@ -83,15 +84,15 @@
 
 bool
 make_dir_parents (char *dir,
-                  struct savewd *wd,
-                  int (*make_ancestor) (char const *, char const *, void *),
-                  void *options,
-                  mode_t mode,
-                  void (*announce) (char const *, void *),
-                  mode_t mode_bits,
-                  uid_t owner,
-                  gid_t group,
-                  bool preserve_existing)
+		  struct savewd *wd,
+		  int (*make_ancestor) (char const *, char const *, void *),
+		  void *options,
+		  mode_t mode,
+		  void (*announce) (char const *, void *),
+		  mode_t mode_bits,
+		  uid_t owner,
+		  gid_t group,
+		  bool preserve_existing)
 {
   int mkdir_errno = (IS_ABSOLUTE_FILE_NAME (dir) ? 0 : savewd_errno (wd));
 
@@ -101,89 +102,105 @@ make_dir_parents (char *dir,
       int savewd_chdir_options = (HAVE_FCHMOD ? SAVEWD_CHDIR_SKIP_READABLE : 0);
 
       if (make_ancestor)
-        {
-          prefix_len = mkancesdirs (dir, wd, make_ancestor, options);
-          if (prefix_len < 0)
-            {
-              if (prefix_len < -1)
-                return true;
-              mkdir_errno = errno;
-            }
-        }
+	{
+	  prefix_len = mkancesdirs (dir, wd, make_ancestor, options);
+	  if (prefix_len < 0)
+	    {
+	      if (prefix_len < -1)
+		return true;
+	      mkdir_errno = errno;
+	    }
+	}
 
       if (0 <= prefix_len)
-        {
-          /* If the ownership might change, or if the directory will be
-             writable to other users and its special mode bits may
-             change after the directory is created, create it with
-             more restrictive permissions at first, so unauthorized
-             users cannot nip in before the directory is ready.  */
-          bool keep_owner = owner == (uid_t) -1 && group == (gid_t) -1;
-          bool keep_special_mode_bits =
-            ((mode_bits & (S_ISUID | S_ISGID)) | (mode & S_ISVTX)) == 0;
-          mode_t mkdir_mode = mode;
-          if (! keep_owner)
-            mkdir_mode &= ~ (S_IRWXG | S_IRWXO);
-          else if (! keep_special_mode_bits)
-            mkdir_mode &= ~ (S_IWGRP | S_IWOTH);
+	{
+	  /* If the ownership might change, or if the directory will be
+	     writeable to other users and its special mode bits may
+	     change after the directory is created, create it with
+	     more restrictive permissions at first, so unauthorized
+	     users cannot nip in before the directory is ready.  */
+	  bool keep_owner = owner == (uid_t) -1 && group == (gid_t) -1;
+	  bool keep_special_mode_bits =
+	    ((mode_bits & (S_ISUID | S_ISGID)) | (mode & S_ISVTX)) == 0;
+	  mode_t mkdir_mode = mode;
+	  if (! keep_owner)
+	    mkdir_mode &= ~ (S_IRWXG | S_IRWXO);
+	  else if (! keep_special_mode_bits)
+	    mkdir_mode &= ~ (S_IWGRP | S_IWOTH);
 
-          if (mkdir (dir + prefix_len, mkdir_mode) == 0)
-            {
-              /* True if the caller does not care about the umask's
-                 effect on the permissions.  */
-              bool umask_must_be_ok = (mode & mode_bits & S_IRWXUGO) == 0;
+	  if (mkdir (dir + prefix_len, mkdir_mode) == 0)
+	    {
+	      announce (dir, options);
+	      preserve_existing = keep_owner & keep_special_mode_bits;
+	      savewd_chdir_options |=
+		(SAVEWD_CHDIR_NOFOLLOW
+		 | (mode & S_IRUSR ? SAVEWD_CHDIR_READABLE : 0));
+	    }
+	  else
+	    {
+	      mkdir_errno = errno;
+	      mkdir_mode = -1;
+	    }
 
-              announce (dir, options);
-              preserve_existing = (keep_owner & keep_special_mode_bits
-                                   & umask_must_be_ok);
-              savewd_chdir_options |= SAVEWD_CHDIR_NOFOLLOW;
-            }
-          else
-            {
-              mkdir_errno = errno;
-              mkdir_mode = -1;
-            }
+	  if (preserve_existing)
+	    {
+	      struct stat st;
+	      if (mkdir_errno == 0
+		  || (mkdir_errno != ENOENT && make_ancestor
+		      && stat (dir + prefix_len, &st) == 0
+		      && S_ISDIR (st.st_mode)))
+		return true;
+	    }
+	  else
+	    {
+	      int open_result[2];
+	      int chdir_result =
+		savewd_chdir (wd, dir + prefix_len,
+			      savewd_chdir_options, open_result);
+	      if (chdir_result < -1)
+		return true;
+	      else
+		{
+		  bool chdir_ok = (chdir_result == 0);
+		  int chdir_errno = errno;
+		  int fd = open_result[0];
+		  bool chdir_failed_unexpectedly =
+		    (mkdir_errno == 0
+		     && ((! chdir_ok && (mode & S_IXUSR))
+			 || (fd < 0 && (mode & S_IRUSR))));
 
-          if (preserve_existing)
-            {
-              struct stat st;
-              if (mkdir_errno == 0
-                  || (mkdir_errno != ENOENT && make_ancestor
-                      && stat (dir + prefix_len, &st) == 0
-                      && S_ISDIR (st.st_mode)))
-                return true;
-            }
-          else
-            {
-              int open_result[2];
-              int chdir_result =
-                savewd_chdir (wd, dir + prefix_len,
-                              savewd_chdir_options, open_result);
-              if (chdir_result < -1)
-                return true;
-              else
-                {
-                  bool chdir_ok = (chdir_result == 0);
-                  char const *subdir = (chdir_ok ? "." : dir + prefix_len);
-                  if (dirchownmod (open_result[0], subdir, mkdir_mode,
-                                   owner, group, mode, mode_bits)
-                      == 0)
-                    return true;
+		  if (chdir_failed_unexpectedly)
+		    {
+		      /* No need to save errno here; it's irrelevant.  */
+		      if (0 <= fd)
+			close (fd);
+		    }
+		  else
+		    {
+		      char const *subdir = (chdir_ok ? "." : dir + prefix_len);
+		      if (dirchownmod (fd, subdir, mkdir_mode, owner, group,
+				       mode, mode_bits)
+			  == 0)
+			return true;
+		    }
 
-                  if (mkdir_errno == 0
-                      || (mkdir_errno != ENOENT && make_ancestor
-                          && errno != ENOTDIR))
-                    {
-                      error (0, errno,
-                             _(keep_owner
-                               ? "cannot change permissions of %s"
-                               : "cannot change owner and permissions of %s"),
-                             quote (dir));
-                      return false;
-                    }
-                }
-            }
-        }
+		  if (mkdir_errno == 0
+		      || (mkdir_errno != ENOENT && make_ancestor
+			  && errno != ENOTDIR))
+		    {
+		      error (0,
+			     (! chdir_failed_unexpectedly ? errno
+			      : ! chdir_ok && (mode & S_IXUSR) ? chdir_errno
+			      : open_result[1]),
+			     _(keep_owner
+			       ? "cannot change permissions of %s"
+			       : "cannot change owner and permissions of %s"),
+			     quote (dir));
+		      return false;
+		    }
+		}
+	    }
+	}
     }
 
   error (0, mkdir_errno, _("cannot create directory %s"), quote (dir));

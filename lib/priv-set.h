@@ -1,6 +1,6 @@
 /* Query, remove, or restore a Solaris privilege.
 
-   Copyright (C) 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -17,15 +17,7 @@
 
    Written by David Bartley.  */
 
-#ifndef _GL_INLINE_HEADER_BEGIN
- #error "Please include config.h first."
-#endif
-_GL_INLINE_HEADER_BEGIN
-#ifndef PRIV_SET_INLINE
-# define PRIV_SET_INLINE _GL_INLINE
-#endif
-
-#if HAVE_GETPPRIV && HAVE_PRIV_H
+#if HAVE_GETPPRIV
 
 # include <priv.h>
 
@@ -33,32 +25,26 @@ int priv_set_ismember (const char *priv);
 int priv_set_remove (const char *priv);
 int priv_set_restore (const char *priv);
 
-PRIV_SET_INLINE int
-priv_set_remove_linkdir (void)
+static inline int priv_set_remove_linkdir (void)
 {
   return priv_set_remove (PRIV_SYS_LINKDIR);
 }
 
-PRIV_SET_INLINE int
-priv_set_restore_linkdir (void)
+static inline int priv_set_restore_linkdir (void)
 {
   return priv_set_restore (PRIV_SYS_LINKDIR);
 }
 
 #else
 
-PRIV_SET_INLINE int
-priv_set_remove_linkdir (void)
+static inline int priv_set_remove_linkdir (void)
 {
   return -1;
 }
 
-PRIV_SET_INLINE int
-priv_set_restore_linkdir (void)
+static inline int priv_set_restore_linkdir (void)
 {
   return -1;
 }
 
 #endif
-
-_GL_INLINE_HEADER_END

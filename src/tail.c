@@ -1,5 +1,6 @@
 /* tail -- output the last part of file(s)
-   Copyright (C) 1989-2016 Free Software Foundation, Inc.
+   Copyright (C) 1989, 90, 91, 1995-2006, 2008-2009 Free Software
+   Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -40,31 +41,20 @@
 #include "posixver.h"
 #include "quote.h"
 #include "safe-read.h"
-#include "stat-size.h"
 #include "stat-time.h"
 #include "xfreopen.h"
 #include "xnanosleep.h"
-#include "xdectoint.h"
 #include "xstrtol.h"
 #include "xstrtod.h"
 
 #if HAVE_INOTIFY
 # include "hash.h"
 # include <sys/inotify.h>
-/* 'select' is used by tail_forever_inotify.  */
+/* `select' is used by tail_forever_inotify.  */
 # include <sys/select.h>
-
-/* inotify needs to know if a file is local.  */
-# include "fs.h"
-# include "fs-is-local.h"
-# if HAVE_SYS_STATFS_H
-#  include <sys/statfs.h>
-# elif HAVE_SYS_VFS_H
-#  include <sys/vfs.h>
-# endif
 #endif
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "tail"
 
 #define AUTHORS \
@@ -115,6 +105,9 @@ struct File_spec
   /* The actual file name, or "-" for stdin.  */
   char *name;
 
+  /* File descriptor on which the file is open; -1 if it's not open.  */
+  int fd;
+
   /* Attributes of the file the last time we checked.  */
   off_t size;
   struct timespec mtime;
@@ -122,26 +115,23 @@ struct File_spec
   ino_t ino;
   mode_t mode;
 
+  /* 1 if O_NONBLOCK is clear, 0 if set, -1 if not known.  */
+  int blocking;
+
   /* The specified name initially referred to a directory or some other
      type for which tail isn't meaningful.  Unlike for a permission problem
      (tailable, below) once this is set, the name is not checked ever again.  */
   bool ignore;
 
-  /* See the description of fremote.  */
-  bool remote;
+  /* See description of DEFAULT_MAX_N_... below.  */
+  uintmax_t n_unchanged_stats;
 
   /* A file is tailable if it exists, is readable, and is of type
      IS_TAILABLE_FILE_TYPE.  */
   bool tailable;
 
-  /* File descriptor on which the file is open; -1 if it's not open.  */
-  int fd;
-
   /* The value of errno seen last time we checked this file.  */
   int errnum;
-
-  /* 1 if O_NONBLOCK is clear, 0 if set, -1 if not known.  */
-  int blocking;
 
 #if HAVE_INOTIFY
   /* The watch descriptor used by inotify.  */
@@ -154,10 +144,14 @@ struct File_spec
   /* Offset in NAME of the basename part.  */
   size_t basename_start;
 #endif
-
-  /* See description of DEFAULT_MAX_N_... below.  */
-  uintmax_t n_unchanged_stats;
 };
+
+#if HAVE_INOTIFY
+/* The events mask used with inotify on files.  This mask is not used on
+   directories.  */
+const uint32_t inotify_wd_mask = (IN_MODIFY | IN_ATTRIB | IN_DELETE_SELF
+                                  | IN_MOVE_SELF);
+#endif
 
 /* Keep trying to open a file even if it is inaccessible when tail starts
    or if it becomes inaccessible later -- useful only with -f.  */
@@ -179,9 +173,6 @@ static bool from_start;
 
 /* If true, print filename headers.  */
 static bool print_headers;
-
-/* Character to split lines by. */
-static char line_end;
 
 /* When to print the filename banners.  */
 enum header_mode
@@ -210,7 +201,8 @@ static bool have_read_stdin;
    more expensive) code unconditionally. Intended solely for testing.  */
 static bool presume_input_pipe;
 
-/* If nonzero then don't use inotify even if available.  */
+/* If nonzero then don't use inotify even if available.
+   Intended solely for testing.  */
 static bool disable_inotify;
 
 /* For long options that have no equivalent short option, use a
@@ -241,7 +233,6 @@ static struct option const long_options[] =
   {"silent", no_argument, NULL, 'q'},
   {"sleep-interval", required_argument, NULL, 's'},
   {"verbose", no_argument, NULL, 'v'},
-  {"zero-terminated", no_argument, NULL, 'z'},
   {GETOPT_HELP_OPTION_DECL},
   {GETOPT_VERSION_OPTION_DECL},
   {NULL, 0, NULL, 0}
@@ -251,7 +242,8 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("\
@@ -261,30 +253,31 @@ Usage: %s [OPTION]... [FILE]...\n\
       printf (_("\
 Print the last %d lines of each FILE to standard output.\n\
 With more than one FILE, precede each with a header giving the file name.\n\
+With no FILE, or when FILE is -, read standard input.\n\
+\n\
 "), DEFAULT_N_LINES);
-
-      emit_stdin_note ();
-      emit_mandatory_arg_note ();
-
      fputs (_("\
-  -c, --bytes=[+]NUM       output the last NUM bytes; or use -c +NUM to\n\
-                             output starting with byte NUM of each file\n\
+Mandatory arguments to long options are mandatory for short options too.\n\
+"), stdout);
+     fputs (_("\
+  -c, --bytes=K            output the last K bytes; alternatively, use +K to\n\
+                           output bytes starting with the Kth of each file\n\
 "), stdout);
      fputs (_("\
   -f, --follow[={name|descriptor}]\n\
                            output appended data as the file grows;\n\
-                             an absent option argument means 'descriptor'\n\
+                           -f, --follow, and --follow=descriptor are\n\
+                           equivalent\n\
   -F                       same as --follow=name --retry\n\
 "), stdout);
      printf (_("\
-  -n, --lines=[+]NUM       output the last NUM lines, instead of the last %d;\n\
-                             or use -n +NUM to output starting with line NUM\n\
+  -n, --lines=K            output the last K lines, instead of the last %d;\n\
+                           or use +K to output lines starting with the Kth\n\
       --max-unchanged-stats=N\n\
                            with --follow=name, reopen a FILE which has not\n\
-                             changed size after N (default %d) iterations\n\
-                             to see if it has been unlinked or renamed\n\
-                             (this is the usual case of rotated log files);\n\
-                             with inotify, this option is rarely useful\n\
+                           changed size after N (default %d) iterations\n\
+                           to see if it has been unlinked or renamed\n\
+                           (this is the usual case of rotated log files)\n\
 "),
              DEFAULT_N_LINES,
              DEFAULT_MAX_N_UNCHANGED_STATS_BETWEEN_OPENS
@@ -292,23 +285,22 @@ With more than one FILE, precede each with a header giving the file name.\n\
      fputs (_("\
       --pid=PID            with -f, terminate after process ID, PID dies\n\
   -q, --quiet, --silent    never output headers giving file names\n\
-      --retry              keep trying to open a file if it is inaccessible\n\
+      --retry              keep trying to open a file even when it is or\n\
+                             becomes inaccessible; useful when following by\n\
+                             name, i.e., with --follow=name\n\
 "), stdout);
      fputs (_("\
   -s, --sleep-interval=N   with -f, sleep for approximately N seconds\n\
-                             (default 1.0) between iterations;\n\
-                             with inotify and --pid=P, check process P at\n\
-                             least once every N seconds\n\
+                             (default 1.0) between iterations\n\
   -v, --verbose            always output headers giving file names\n\
-"), stdout);
-     fputs (_("\
-  -z, --zero-terminated    line delimiter is NUL, not newline\n\
 "), stdout);
      fputs (HELP_OPTION_DESCRIPTION, stdout);
      fputs (VERSION_OPTION_DESCRIPTION, stdout);
      fputs (_("\
 \n\
-NUM may have a multiplier suffix:\n\
+If the first character of K (the number of bytes or lines) is a `+',\n\
+print beginning with the Kth item from the start of each file, otherwise,\n\
+print the last K items in the file.  K may have a multiplier suffix:\n\
 b 512, kB 1000, K 1024, MB 1000*1000, M 1024*1024,\n\
 GB 1000*1000*1000, G 1024*1024*1024, and so on for T, P, E, Z, Y.\n\
 \n\
@@ -316,12 +308,16 @@ GB 1000*1000*1000, G 1024*1024*1024, and so on for T, P, E, Z, Y.\n\
      fputs (_("\
 With --follow (-f), tail defaults to following the file descriptor, which\n\
 means that even if a tail'ed file is renamed, tail will continue to track\n\
-its end.  This default behavior is not desirable when you really want to\n\
+its end.  \
+"), stdout);
+     fputs (_("\
+This default behavior is not desirable when you really want to\n\
 track the actual name of the file, not the file descriptor (e.g., log\n\
 rotation).  Use --follow=name in that case.  That causes tail to track the\n\
-named file in a way that accommodates renaming, removal and creation.\n\
+named file by reopening it periodically to see if it has been removed and\n\
+recreated by some other program.\n\
 "), stdout);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
@@ -337,6 +333,13 @@ static char const *
 pretty_name (struct File_spec const *f)
 {
   return (STREQ (f->name, "-") ? _("standard input") : f->name);
+}
+
+static void
+xwrite_stdout (char const *buffer, size_t n_bytes)
+{
+  if (n_bytes > 0 && fwrite (buffer, 1, n_bytes, stdout) == 0)
+    error (EXIT_FAILURE, errno, _("write error"));
 }
 
 /* Record a file F with descriptor FD, size SIZE, status ST, and
@@ -365,7 +368,7 @@ close_fd (int fd, const char *filename)
 {
   if (fd != -1 && fd != STDIN_FILENO && close (fd))
     {
-      error (0, errno, _("closing %s (fd=%d)"), quoteaf (filename), fd);
+      error (0, errno, _("closing %s (fd=%d)"), filename, fd);
     }
 }
 
@@ -376,20 +379,6 @@ write_header (const char *pretty_filename)
 
   printf ("%s==> %s <==\n", (first_file ? "" : "\n"), pretty_filename);
   first_file = false;
-}
-
-/* Write N_BYTES from BUFFER to stdout.
-   Exit immediately on error with a single diagnostic.  */
-
-static void
-xwrite_stdout (char const *buffer, size_t n_bytes)
-{
-  if (n_bytes > 0 && fwrite (buffer, 1, n_bytes, stdout) < n_bytes)
-    {
-      clearerr (stdout); /* To avoid redundant close_stdout diagnostic.  */
-      error (EXIT_FAILURE, errno, _("error writing %s"),
-             quoteaf ("standard output"));
-    }
 }
 
 /* Read and output N_BYTES of file PRETTY_FILENAME starting at the current
@@ -413,7 +402,7 @@ dump_remainder (const char *pretty_filename, int fd, uintmax_t n_bytes)
         {
           if (errno != EAGAIN)
             error (EXIT_FAILURE, errno, _("error reading %s"),
-                   quoteaf (pretty_filename));
+                   quote (pretty_filename));
           break;
         }
       if (bytes_read == 0)
@@ -440,7 +429,7 @@ static off_t
 xlseek (int fd, off_t offset, int whence, char const *filename)
 {
   off_t new_offset = lseek (fd, offset, whence);
-  char buf[INT_BUFSIZE_BOUND (offset)];
+  char buf[INT_BUFSIZE_BOUND (off_t)];
   char *s;
 
   if (0 <= new_offset)
@@ -451,15 +440,15 @@ xlseek (int fd, off_t offset, int whence, char const *filename)
     {
     case SEEK_SET:
       error (0, errno, _("%s: cannot seek to offset %s"),
-             quotef (filename), s);
+             filename, s);
       break;
     case SEEK_CUR:
       error (0, errno, _("%s: cannot seek to relative offset %s"),
-             quotef (filename), s);
+             filename, s);
       break;
     case SEEK_END:
       error (0, errno, _("%s: cannot seek to end-relative offset %s"),
-             quotef (filename), s);
+             filename, s);
       break;
     default:
       abort ();
@@ -469,7 +458,7 @@ xlseek (int fd, off_t offset, int whence, char const *filename)
 }
 
 /* Print the last N_LINES lines from the end of file FD.
-   Go backward through the file, reading 'BUFSIZ' bytes at a time (except
+   Go backward through the file, reading `BUFSIZ' bytes at a time (except
    probably the first), until we hit the start of the file or have
    read NUMBER newlines.
    START_POS is the starting position of the read pointer for the file
@@ -488,25 +477,25 @@ file_lines (const char *pretty_filename, int fd, uintmax_t n_lines,
   if (n_lines == 0)
     return true;
 
-  /* Set 'bytes_read' to the size of the last, probably partial, buffer;
-     0 < 'bytes_read' <= 'BUFSIZ'.  */
+  /* Set `bytes_read' to the size of the last, probably partial, buffer;
+     0 < `bytes_read' <= `BUFSIZ'.  */
   bytes_read = (pos - start_pos) % BUFSIZ;
   if (bytes_read == 0)
     bytes_read = BUFSIZ;
-  /* Make 'pos' a multiple of 'BUFSIZ' (0 if the file is short), so that all
+  /* Make `pos' a multiple of `BUFSIZ' (0 if the file is short), so that all
      reads will be on block boundaries, which might increase efficiency.  */
   pos -= bytes_read;
   xlseek (fd, pos, SEEK_SET, pretty_filename);
   bytes_read = safe_read (fd, buffer, bytes_read);
   if (bytes_read == SAFE_READ_ERROR)
     {
-      error (0, errno, _("error reading %s"), quoteaf (pretty_filename));
+      error (0, errno, _("error reading %s"), quote (pretty_filename));
       return false;
     }
   *read_pos = pos + bytes_read;
 
   /* Count the incomplete line on files that don't end with a newline.  */
-  if (bytes_read && buffer[bytes_read - 1] != line_end)
+  if (bytes_read && buffer[bytes_read - 1] != '\n')
     --n_lines;
 
   do
@@ -517,7 +506,7 @@ file_lines (const char *pretty_filename, int fd, uintmax_t n_lines,
       while (n)
         {
           char const *nl;
-          nl = memrchr (buffer, line_end, n);
+          nl = memrchr (buffer, '\n', n);
           if (nl == NULL)
             break;
           n = nl - buffer;
@@ -549,7 +538,7 @@ file_lines (const char *pretty_filename, int fd, uintmax_t n_lines,
       bytes_read = safe_read (fd, buffer, BUFSIZ);
       if (bytes_read == SAFE_READ_ERROR)
         {
-          error (0, errno, _("error reading %s"), quoteaf (pretty_filename));
+          error (0, errno, _("error reading %s"), quote (pretty_filename));
           return false;
         }
 
@@ -602,7 +591,7 @@ pipe_lines (const char *pretty_filename, int fd, uintmax_t n_lines,
       {
         char const *buffer_end = tmp->buffer + n_read;
         char const *p = tmp->buffer;
-        while ((p = memchr (p, line_end, buffer_end - p)))
+        while ((p = memchr (p, '\n', buffer_end - p)))
           {
             ++p;
             ++tmp->nlines;
@@ -611,7 +600,7 @@ pipe_lines (const char *pretty_filename, int fd, uintmax_t n_lines,
       total_lines += tmp->nlines;
 
       /* If there is enough room in the last buffer read, just append the new
-         one to it.  This is because when reading from a pipe, 'n_read' can
+         one to it.  This is because when reading from a pipe, `n_read' can
          often be very small.  */
       if (tmp->nbytes + last->nbytes < BUFSIZ)
         {
@@ -642,7 +631,7 @@ pipe_lines (const char *pretty_filename, int fd, uintmax_t n_lines,
 
   if (n_read == SAFE_READ_ERROR)
     {
-      error (0, errno, _("error reading %s"), quoteaf (pretty_filename));
+      error (0, errno, _("error reading %s"), quote (pretty_filename));
       ok = false;
       goto free_lbuffers;
     }
@@ -656,7 +645,7 @@ pipe_lines (const char *pretty_filename, int fd, uintmax_t n_lines,
     goto free_lbuffers;
 
   /* Count the incomplete line on files that don't end with a newline.  */
-  if (last->buffer[last->nbytes - 1] != line_end)
+  if (last->buffer[last->nbytes - 1] != '\n')
     {
       ++last->nlines;
       ++total_lines;
@@ -673,12 +662,12 @@ pipe_lines (const char *pretty_filename, int fd, uintmax_t n_lines,
     char const *buffer_end = tmp->buffer + tmp->nbytes;
     if (total_lines > n_lines)
       {
-        /* Skip 'total_lines' - 'n_lines' newlines.  We made sure that
-           'total_lines' - 'n_lines' <= 'tmp->nlines'.  */
+        /* Skip `total_lines' - `n_lines' newlines.  We made sure that
+           `total_lines' - `n_lines' <= `tmp->nlines'.  */
         size_t j;
         for (j = total_lines - n_lines; j; --j)
           {
-            beg = memchr (beg, line_end, buffer_end - beg);
+            beg = memchr (beg, '\n', buffer_end - beg);
             assert (beg);
             ++beg;
           }
@@ -738,7 +727,7 @@ pipe_bytes (const char *pretty_filename, int fd, uintmax_t n_bytes,
 
       total_bytes += tmp->nbytes;
       /* If there is enough room in the last buffer read, just append the new
-         one to it.  This is because when reading from a pipe, 'nbytes' can
+         one to it.  This is because when reading from a pipe, `nbytes' can
          often be very small.  */
       if (tmp->nbytes + last->nbytes < BUFSIZ)
         {
@@ -770,7 +759,7 @@ pipe_bytes (const char *pretty_filename, int fd, uintmax_t n_bytes,
 
   if (n_read == SAFE_READ_ERROR)
     {
-      error (0, errno, _("error reading %s"), quoteaf (pretty_filename));
+      error (0, errno, _("error reading %s"), quote (pretty_filename));
       ok = false;
       goto free_cbuffers;
     }
@@ -781,7 +770,7 @@ pipe_bytes (const char *pretty_filename, int fd, uintmax_t n_bytes,
     total_bytes -= tmp->nbytes;
 
   /* Find the correct beginning, then print the rest of the file.
-     We made sure that 'total_bytes' - 'n_bytes' <= 'tmp->nbytes'.  */
+     We made sure that `total_bytes' - `n_bytes' <= `tmp->nbytes'.  */
   if (total_bytes > n_bytes)
     i = total_bytes - n_bytes;
   else
@@ -818,10 +807,10 @@ start_bytes (const char *pretty_filename, int fd, uintmax_t n_bytes,
         return -1;
       if (bytes_read == SAFE_READ_ERROR)
         {
-          error (0, errno, _("error reading %s"), quoteaf (pretty_filename));
+          error (0, errno, _("error reading %s"), quote (pretty_filename));
           return 1;
         }
-      *read_pos += bytes_read;
+      read_pos += bytes_read;
       if (bytes_read <= n_bytes)
         n_bytes -= bytes_read;
       else
@@ -850,21 +839,20 @@ start_lines (const char *pretty_filename, int fd, uintmax_t n_lines,
   while (1)
     {
       char buffer[BUFSIZ];
+      char *p = buffer;
       size_t bytes_read = safe_read (fd, buffer, BUFSIZ);
+      char *buffer_end = buffer + bytes_read;
       if (bytes_read == 0) /* EOF */
         return -1;
       if (bytes_read == SAFE_READ_ERROR) /* error */
         {
-          error (0, errno, _("error reading %s"), quoteaf (pretty_filename));
+          error (0, errno, _("error reading %s"), quote (pretty_filename));
           return 1;
         }
 
-      char *buffer_end = buffer + bytes_read;
-
       *read_pos += bytes_read;
 
-      char *p = buffer;
-      while ((p = memchr (p, line_end, buffer_end - p)))
+      while ((p = memchr (p, '\n', buffer_end - p)))
         {
           ++p;
           if (--n_lines == 0)
@@ -877,59 +865,12 @@ start_lines (const char *pretty_filename, int fd, uintmax_t n_lines,
     }
 }
 
-#if HAVE_INOTIFY
-/* Without inotify support, always return false.  Otherwise, return false
-   when FD is open on a file known to reside on a local file system.
-   If fstatfs fails, give a diagnostic and return true.
-   If fstatfs cannot be called, return true.  */
-static bool
-fremote (int fd, const char *name)
-{
-  bool remote = true;           /* be conservative (poll by default).  */
+/* FIXME: describe */
 
-# if HAVE_FSTATFS && HAVE_STRUCT_STATFS_F_TYPE && defined __linux__
-  struct statfs buf;
-  int err = fstatfs (fd, &buf);
-  if (err != 0)
-    {
-      /* On at least linux-2.6.38, fstatfs fails with ENOSYS when FD
-         is open on a pipe.  Treat that like a remote file.  */
-      if (errno != ENOSYS)
-        error (0, errno, _("cannot determine location of %s. "
-                           "reverting to polling"), quoteaf (name));
-    }
-  else
-    {
-      switch (is_local_fs_type (buf.f_type))
-        {
-        case 0:
-          break;
-        case -1:
-          /* Treat unrecognized file systems as "remote", so caller polls.
-             Note README-release has instructions for syncing the internal
-             list with the latest Linux kernel file system constants.  */
-          break;
-        case 1:
-          remote = false;
-          break;
-        default:
-          assert (!"unexpected return value from is_local_fs_type");
-        }
-    }
-# endif
-
-  return remote;
-}
-#else
-/* Without inotify support, whether a file is remote is irrelevant.
-   Always return "false" in that case.  */
-# define fremote(fd, name) false
-#endif
-
-/* open/fstat F->name and handle changes.  */
 static void
 recheck (struct File_spec *f, bool blocking)
 {
+  /* open/fstat the file and announce if dev/ino have changed */
   struct stat new_stats;
   bool ok = true;
   bool is_stdin = (STREQ (f->name, "-"));
@@ -946,20 +887,7 @@ recheck (struct File_spec *f, bool blocking)
      then mark the file as not tailable.  */
   f->tailable = !(reopen_inaccessible_files && fd == -1);
 
-  if (! disable_inotify && ! lstat (f->name, &new_stats)
-      && S_ISLNK (new_stats.st_mode))
-    {
-      /* Diagnose the edge case where a regular file is changed
-         to a symlink.  We avoid inotify with symlinks since
-         it's awkward to match between symlink name and target.  */
-      ok = false;
-      f->errnum = -1;
-      f->ignore = true;
-
-      error (0, 0, _("%s has been replaced with a symbolic link. "
-                     "giving up on this name"), quoteaf (pretty_name (f)));
-    }
-  else if (fd == -1 || fstat (fd, &new_stats) < 0)
+  if (fd == -1 || fstat (fd, &new_stats) < 0)
     {
       ok = false;
       f->errnum = errno;
@@ -972,7 +900,7 @@ recheck (struct File_spec *f, bool blocking)
                  be seen to be the same file (dev/ino).  Otherwise, tail prints
                  the entire contents of the file when it becomes readable.  */
               error (0, f->errnum, _("%s has become inaccessible"),
-                     quoteaf (pretty_name (f)));
+                     quote (pretty_name (f)));
             }
           else
             {
@@ -980,7 +908,9 @@ recheck (struct File_spec *f, bool blocking)
             }
         }
       else if (prev_errnum != errno)
-        error (0, errno, "%s", quotef (pretty_name (f)));
+        {
+          error (0, errno, "%s", pretty_name (f));
+        }
     }
   else if (!IS_TAILABLE_FILE_TYPE (new_stats.st_mode))
     {
@@ -988,17 +918,8 @@ recheck (struct File_spec *f, bool blocking)
       f->errnum = -1;
       error (0, 0, _("%s has been replaced with an untailable file;\
  giving up on this name"),
-             quoteaf (pretty_name (f)));
+             quote (pretty_name (f)));
       f->ignore = true;
-    }
-  else if (!disable_inotify && fremote (fd, pretty_name (f)))
-    {
-      ok = false;
-      f->errnum = -1;
-      error (0, 0, _("%s has been replaced with a remote file. "
-                     "giving up on this name"), quoteaf (pretty_name (f)));
-      f->ignore = true;
-      f->remote = true;
     }
   else
     {
@@ -1016,47 +937,44 @@ recheck (struct File_spec *f, bool blocking)
     {
       new_file = true;
       assert (f->fd == -1);
-      error (0, 0, _("%s has become accessible"), quoteaf (pretty_name (f)));
-    }
-  else if (f->fd == -1)
-    {
-      /* A new file even when inodes haven't changed as <dev,inode>
-         pairs can be reused, and we know the file was missing
-         on the previous iteration.  Note this also means the file
-         is redisplayed in --follow=name mode if renamed away from
-         and back to a monitored name.  */
-      new_file = true;
-
-      error (0, 0,
-             _("%s has appeared;  following new file"),
-             quoteaf (pretty_name (f)));
+      error (0, 0, _("%s has become accessible"), quote (pretty_name (f)));
     }
   else if (f->ino != new_stats.st_ino || f->dev != new_stats.st_dev)
     {
-      /* File has been replaced (e.g., via log rotation) --
-        tail the new one.  */
       new_file = true;
+      if (f->fd == -1)
+        {
+          error (0, 0,
+                 _("%s has appeared;  following end of new file"),
+                 quote (pretty_name (f)));
+        }
+      else
+        {
+          /* Close the old one.  */
+          close_fd (f->fd, pretty_name (f));
 
-      error (0, 0,
-             _("%s has been replaced;  following new file"),
-             quoteaf (pretty_name (f)));
-
-      /* Close the old one.  */
-      close_fd (f->fd, pretty_name (f));
-
+          /* File has been replaced (e.g., via log rotation) --
+             tail the new one.  */
+          error (0, 0,
+                 _("%s has been replaced;  following end of new file"),
+                 quote (pretty_name (f)));
+        }
     }
   else
     {
-      /* No changes detected, so close new fd.  */
-      close_fd (fd, pretty_name (f));
+      if (f->fd == -1)
+        {
+          /* This happens when one iteration finds the file missing,
+             then the preceding <dev,inode> pair is reused as the
+             file is recreated.  */
+          new_file = true;
+        }
+      else
+        {
+          close_fd (fd, pretty_name (f));
+        }
     }
 
-  /* FIXME: When a log is rotated, daemons tend to log to the
-     old file descriptor until the new file is present and
-     the daemon is sent a signal.  Therefore tail may miss entries
-     being written to the old file.  Perhaps we should keep
-     the older file open and continue to monitor it until
-     data is written to a new file.  */
   if (new_file)
     {
       /* Start at the beginning of the file.  */
@@ -1066,32 +984,16 @@ recheck (struct File_spec *f, bool blocking)
 }
 
 /* Return true if any of the N_FILES files in F are live, i.e., have
-   open file descriptors, or should be checked again (see --retry).
-   When following descriptors, checking should only continue when any
-   of the files is not yet ignored.  */
+   open file descriptors.  */
 
 static bool
 any_live_files (const struct File_spec *f, size_t n_files)
 {
   size_t i;
 
-  if (reopen_inaccessible_files && follow_mode == Follow_name)
-    return true;  /* continue following for -F option */
-
   for (i = 0; i < n_files; i++)
-    {
-      if (0 <= f[i].fd)
-        {
-          return true;
-        }
-      else
-        {
-          if (reopen_inaccessible_files && follow_mode == Follow_descriptor)
-            if (! f[i].ignore)
-              return true;
-        }
-    }
-
+    if (0 <= f[i].fd)
+      return true;
   return false;
 }
 
@@ -1155,8 +1057,7 @@ tail_forever (struct File_spec *f, size_t n_files, double sleep_interval)
                     }
                   else
                     error (EXIT_FAILURE, errno,
-                           _("%s: cannot change nonblocking mode"),
-                           quotef (name));
+                           _("%s: cannot change nonblocking mode"), name);
                 }
               else
                 f[i].blocking = blocking;
@@ -1168,8 +1069,7 @@ tail_forever (struct File_spec *f, size_t n_files, double sleep_interval)
                 {
                   f[i].fd = -1;
                   f[i].errnum = errno;
-                  error (0, errno, "%s", quotef (name));
-                  close (fd); /* ignore failure */
+                  error (0, errno, "%s", name);
                   continue;
                 }
 
@@ -1196,16 +1096,13 @@ tail_forever (struct File_spec *f, size_t n_files, double sleep_interval)
               /* reset counter */
               f[i].n_unchanged_stats = 0;
 
-              /* XXX: This is only a heuristic, as the file may have also
-                 been truncated and written to if st_size >= size
-                 (in which case we ignore new data <= size).  */
               if (S_ISREG (mode) && stats.st_size < f[i].size)
                 {
-                  error (0, 0, _("%s: file truncated"), quotef (name));
-                  /* Assume the file was truncated to 0,
-                     and therefore output all "new" data.  */
-                  xlseek (fd, 0, SEEK_SET, name);
-                  f[i].size = 0;
+                  error (0, 0, _("%s: file truncated"), name);
+                  last = i;
+                  xlseek (fd, stats.st_size, SEEK_SET, name);
+                  f[i].size = stats.st_size;
+                  continue;
                 }
 
               if (i != last)
@@ -1223,7 +1120,7 @@ tail_forever (struct File_spec *f, size_t n_files, double sleep_interval)
           f[i].size += bytes_read;
         }
 
-      if (! any_live_files (f, n_files))
+      if (! any_live_files (f, n_files) && ! reopen_inaccessible_files)
         {
           error (0, 0, _("no files remaining"));
           break;
@@ -1256,65 +1153,6 @@ tail_forever (struct File_spec *f, size_t n_files, double sleep_interval)
 
 #if HAVE_INOTIFY
 
-/* Return true if any of the N_FILES files in F is remote, i.e., has
-   an open file descriptor and is on a network file system.  */
-
-static bool
-any_remote_file (const struct File_spec *f, size_t n_files)
-{
-  size_t i;
-
-  for (i = 0; i < n_files; i++)
-    if (0 <= f[i].fd && f[i].remote)
-      return true;
-  return false;
-}
-
-/* Return true if any of the N_FILES files in F is non remote, i.e., has
-   an open file descriptor and is not on a network file system.  */
-
-static bool
-any_non_remote_file (const struct File_spec *f, size_t n_files)
-{
-  size_t i;
-
-  for (i = 0; i < n_files; i++)
-    if (0 <= f[i].fd && ! f[i].remote)
-      return true;
-  return false;
-}
-
-/* Return true if any of the N_FILES files in F is a symlink.
-   Note we don't worry about the edge case where "-" exists,
-   since that will have the same consequences for inotify,
-   which is the only context this function is currently used.  */
-
-static bool
-any_symlinks (const struct File_spec *f, size_t n_files)
-{
-  size_t i;
-
-  struct stat st;
-  for (i = 0; i < n_files; i++)
-    if (lstat (f[i].name, &st) == 0 && S_ISLNK (st.st_mode))
-      return true;
-  return false;
-}
-
-/* Return true if any of the N_FILES files in F represents
-   stdin and is tailable.  */
-
-static bool
-tailable_stdin (const struct File_spec *f, size_t n_files)
-{
-  size_t i;
-
-  for (i = 0; i < n_files; i++)
-    if (!f[i].ignore && STREQ (f[i].name, "-"))
-      return true;
-  return false;
-}
-
 static size_t
 wd_hasher (const void *entry, size_t tabsize)
 {
@@ -1330,98 +1168,32 @@ wd_comparator (const void *e1, const void *e2)
   return spec1->wd == spec2->wd;
 }
 
-/* Output (new) data for FSPEC->fd.  */
+/* Tail N_FILES files forever, or until killed.
+   Check modifications using the inotify events system.  */
+
 static void
-check_fspec (struct File_spec *fspec, struct File_spec **prev_fspec)
-{
-  struct stat stats;
-  char const *name;
-
-  if (fspec->fd == -1)
-    return;
-
-  name = pretty_name (fspec);
-
-  if (fstat (fspec->fd, &stats) != 0)
-    {
-      fspec->errnum = errno;
-      close_fd (fspec->fd, name);
-      fspec->fd = -1;
-      return;
-    }
-
-  /* XXX: This is only a heuristic, as the file may have also
-     been truncated and written to if st_size >= size
-     (in which case we ignore new data <= size).
-     Though in the inotify case it's more likely we'll get
-     separate events for truncate() and write().  */
-  if (S_ISREG (fspec->mode) && stats.st_size < fspec->size)
-    {
-      error (0, 0, _("%s: file truncated"), quotef (name));
-      xlseek (fspec->fd, 0, SEEK_SET, name);
-      fspec->size = 0;
-    }
-  else if (S_ISREG (fspec->mode) && stats.st_size == fspec->size
-           && timespec_cmp (fspec->mtime, get_stat_mtime (&stats)) == 0)
-    return;
-
-  if (fspec != *prev_fspec)
-    {
-      if (print_headers)
-        write_header (name);
-      *prev_fspec = fspec;
-    }
-
-  uintmax_t bytes_read = dump_remainder (name, fspec->fd, COPY_TO_EOF);
-  fspec->size += bytes_read;
-
-  if (fflush (stdout) != 0)
-    error (EXIT_FAILURE, errno, _("write error"));
-}
-
-/* Attempt to tail N_FILES files forever, or until killed.
-   Check modifications using the inotify events system.
-   Return false on error, or true to revert to polling.  */
-static bool
 tail_forever_inotify (int wd, struct File_spec *f, size_t n_files,
                       double sleep_interval)
 {
-# if TAIL_TEST_SLEEP
-  /* Delay between open() and inotify_add_watch()
-     to help trigger different cases.  */
-  xnanosleep (1000000);
-# endif
+  size_t i;
   unsigned int max_realloc = 3;
+  Hash_table *wd_table;
 
-  /* Map an inotify watch descriptor to the name of the file it's watching.  */
-  Hash_table *wd_to_name;
-
-  bool found_watchable_file = false;
-  bool tailed_but_unwatchable = false;
-  bool found_unwatchable_dir = false;
-  bool no_inotify_resources = false;
+  bool found_watchable = false;
   bool writer_is_dead = false;
-  struct File_spec *prev_fspec;
+  int prev_wd;
   size_t evlen = 0;
   char *evbuf;
   size_t evbuf_off = 0;
   size_t len = 0;
 
-  wd_to_name = hash_initialize (n_files, NULL, wd_hasher, wd_comparator, NULL);
-  if (! wd_to_name)
+  wd_table = hash_initialize (n_files, NULL, wd_hasher, wd_comparator, NULL);
+  if (! wd_table)
     xalloc_die ();
-
-  /* The events mask used with inotify on files (not directories).  */
-  uint32_t inotify_wd_mask = IN_MODIFY;
-  /* TODO: Perhaps monitor these events in Follow_descriptor mode also,
-     to tag reported file names with "deleted", "moved" etc.  */
-  if (follow_mode == Follow_name)
-    inotify_wd_mask |= (IN_ATTRIB | IN_DELETE_SELF | IN_MOVE_SELF);
 
   /* Add an inotify watch for each watched file.  If -F is specified then watch
      its parent directory too, in this way when they re-appear we can add them
      again to the watch list.  */
-  size_t i;
   for (i = 0; i < n_files; i++)
     {
       if (!f[i].ignore)
@@ -1443,22 +1215,16 @@ tail_forever_inotify (int wd, struct File_spec *f, size_t n_files,
                /* It's fine to add the same directory more than once.
                   In that case the same watch descriptor is returned.  */
               f[i].parent_wd = inotify_add_watch (wd, dirlen ? f[i].name : ".",
-                                                  (IN_CREATE | IN_DELETE
-                                                   | IN_MOVED_TO | IN_ATTRIB));
+                                                  (IN_CREATE | IN_MOVED_TO
+                                                   | IN_ATTRIB));
 
               f[i].name[dirlen] = prev;
 
               if (f[i].parent_wd < 0)
                 {
-                  if (errno != ENOSPC) /* suppress confusing error.  */
-                    error (0, errno, _("cannot watch parent directory of %s"),
-                           quoteaf (f[i].name));
-                  else
-                    error (0, 0, _("inotify resources exhausted"));
-                  found_unwatchable_dir = true;
-                  /* We revert to polling below.  Note invalid uses
-                     of the inotify API will still be diagnosed.  */
-                  break;
+                  error (0, errno, _("cannot watch parent directory of %s"),
+                         quote (f[i].name));
+                  continue;
                 }
             }
 
@@ -1466,103 +1232,40 @@ tail_forever_inotify (int wd, struct File_spec *f, size_t n_files,
 
           if (f[i].wd < 0)
             {
-              if (f[i].fd != -1)  /* already tailed.  */
-                tailed_but_unwatchable = true;
-              if (errno == ENOSPC || errno == ENOMEM)
-                {
-                  no_inotify_resources = true;
-                  error (0, 0, _("inotify resources exhausted"));
-                  break;
-                }
-              else if (errno != f[i].errnum)
-                error (0, errno, _("cannot watch %s"), quoteaf (f[i].name));
+              if (errno != f[i].errnum)
+                error (0, errno, _("cannot watch %s"), quote (f[i].name));
               continue;
             }
 
-          if (hash_insert (wd_to_name, &(f[i])) == NULL)
+          if (hash_insert (wd_table, &(f[i])) == NULL)
             xalloc_die ();
 
-          found_watchable_file = true;
+          found_watchable = true;
         }
     }
 
-  /* Linux kernel 2.6.24 at least has a bug where eventually, ENOSPC is always
-     returned by inotify_add_watch.  In any case we should revert to polling
-     when there are no inotify resources.  Also a specified directory may not
-     be currently present or accessible, so revert to polling.  Also an already
-     tailed but unwatchable due rename/unlink race, should also revert.  */
-  if (no_inotify_resources || found_unwatchable_dir
-      || (follow_mode == Follow_descriptor && tailed_but_unwatchable))
-    {
-      hash_free (wd_to_name);
+  if (follow_mode == Follow_descriptor && !found_watchable)
+    return;
 
-      errno = 0;
-      return true;
-    }
-  if (follow_mode == Follow_descriptor && !found_watchable_file)
-    return false;
-
-  prev_fspec = &(f[n_files - 1]);
-
-  /* Check files again.  New files or data can be available since last time we
-     checked and before they are watched by inotify.  */
-  for (i = 0; i < n_files; i++)
-    {
-      if (! f[i].ignore)
-        {
-          /* check for new files.  */
-          if (follow_mode == Follow_name)
-            recheck (&(f[i]), false);
-          else if (f[i].fd != -1)
-            {
-              /* If the file was replaced in the small window since we tailed,
-                 then assume the watch is on the wrong item (different to
-                 that we've already produced output for), and so revert to
-                 polling the original descriptor.  */
-              struct stat stats;
-
-              if (stat (f[i].name, &stats) == 0
-                  && (f[i].dev != stats.st_dev || f[i].ino != stats.st_ino))
-                {
-                  error (0, errno, _("%s was replaced"),
-                         quoteaf (pretty_name (&(f[i]))));
-                  hash_free (wd_to_name);
-
-                  errno = 0;
-                  return true;
-                }
-            }
-
-          /* check for new data.  */
-          check_fspec (&f[i], &prev_fspec);
-        }
-    }
+  prev_wd = f[n_files - 1].wd;
 
   evlen += sizeof (struct inotify_event) + 1;
   evbuf = xmalloc (evlen);
 
-  /* Wait for inotify events and handle them.  Events on directories
-     ensure that watched files can be re-added when following by name.
-     This loop blocks on the 'safe_read' call until a new event is notified.
-     But when --pid=P is specified, tail usually waits via the select.  */
+  /* Wait for inotify events and handle them.  Events on directories make sure
+     that watched files can be re-added when -F is used.
+     This loop sleeps on the `safe_read' call until a new event is notified.  */
   while (1)
     {
+      char const *name;
       struct File_spec *fspec;
-      struct inotify_event *ev;
-      void *void_ev;
+      uintmax_t bytes_read;
+      struct stat stats;
 
-      /* When following by name without --retry, and the last file has
-         been unlinked or renamed-away, diagnose it and return.  */
-      if (follow_mode == Follow_name
-          && ! reopen_inaccessible_files
-          && hash_get_n_entries (wd_to_name) == 0)
-        {
-          error (0, 0, _("no files remaining"));
-          return false;
-        }
+      struct inotify_event *ev;
 
       /* When watching a PID, ensure that a read from WD will not block
-         indefinitely.  */
+         indefinetely.  */
       if (pid)
         {
           if (writer_is_dead)
@@ -1611,125 +1314,92 @@ tail_forever_inotify (int wd, struct File_spec *f, size_t n_files,
             error (EXIT_FAILURE, errno, _("error reading inotify event"));
         }
 
-      void_ev = evbuf + evbuf_off;
-      ev = void_ev;
+      ev = (struct inotify_event *) (evbuf + evbuf_off);
       evbuf_off += sizeof (*ev) + ev->len;
 
-      if (ev->len) /* event on ev->name in watched directory.  */
+      if (ev->len)
         {
-          size_t j;
-          for (j = 0; j < n_files; j++)
+          for (i = 0; i < n_files; i++)
             {
               /* With N=hundreds of frequently-changing files, this O(N^2)
                  process might be a problem.  FIXME: use a hash table?  */
-              if (f[j].parent_wd == ev->wd
-                  && STREQ (ev->name, f[j].name + f[j].basename_start))
+              if (f[i].parent_wd == ev->wd
+                  && STREQ (ev->name, f[i].name + f[i].basename_start))
                 break;
             }
 
           /* It is not a watched file.  */
-          if (j == n_files)
+          if (i == n_files)
             continue;
 
-          fspec = &(f[j]);
+          f[i].wd = inotify_add_watch (wd, f[i].name, inotify_wd_mask);
 
-          int new_wd = -1;
-          bool deleting = !! (ev->mask & IN_DELETE);
-
-          if (! deleting)
+          if (f[i].wd < 0)
             {
-              /* Adding the same inode again will look up any existing wd.  */
-              new_wd = inotify_add_watch (wd, f[j].name, inotify_wd_mask);
+              error (0, errno, _("cannot watch %s"), quote (f[i].name));
+              continue;
             }
 
-          if (! deleting && new_wd < 0)
-            {
-              if (errno == ENOSPC || errno == ENOMEM)
-                {
-                  error (0, 0, _("inotify resources exhausted"));
-                  hash_free (wd_to_name);
-                  errno = 0;
-                  return true; /* revert to polling.  */
-                }
-              else
-                {
-                  /* Can get ENOENT for a dangling symlink for example.  */
-                  error (0, errno, _("cannot watch %s"), quoteaf (f[j].name));
-                }
-              /* We'll continue below after removing the existing watch.  */
-            }
-
-          /* This will be false if only attributes of file change.  */
-          bool new_watch;
-          new_watch = (! deleting) && (fspec->wd < 0 || new_wd != fspec->wd);
-
-          if (new_watch)
-            {
-              if (0 <= fspec->wd)
-                {
-                  inotify_rm_watch (wd, fspec->wd);
-                  hash_delete (wd_to_name, fspec);
-                }
-
-              fspec->wd = new_wd;
-
-              if (new_wd == -1)
-                continue;
-
-              /* If the file was moved then inotify will use the source file wd
-                for the destination file.  Make sure the key is not present in
-                the table.  */
-              struct File_spec *prev = hash_delete (wd_to_name, fspec);
-              if (prev && prev != fspec)
-                {
-                  if (follow_mode == Follow_name)
-                    recheck (prev, false);
-                  prev->wd = -1;
-                  close_fd (prev->fd, pretty_name (prev));
-                }
-
-              if (hash_insert (wd_to_name, fspec) == NULL)
-                xalloc_die ();
-            }
+          fspec = &(f[i]);
+          if (hash_insert (wd_table, fspec) == NULL)
+            xalloc_die ();
 
           if (follow_mode == Follow_name)
-            recheck (fspec, false);
+            recheck (&(f[i]), false);
         }
       else
         {
           struct File_spec key;
           key.wd = ev->wd;
-          fspec = hash_lookup (wd_to_name, &key);
+          fspec = hash_lookup (wd_table, &key);
         }
 
       if (! fspec)
         continue;
 
-      if (ev->mask & (IN_ATTRIB | IN_DELETE | IN_DELETE_SELF | IN_MOVE_SELF))
+      if (ev->mask & (IN_ATTRIB | IN_DELETE_SELF | IN_MOVE_SELF))
         {
-          /* Note for IN_MOVE_SELF (the file we're watching has
-             been clobbered via a rename) we leave the watch
-             in place since it may still be part of the set
-             of watched names.  */
-          if (ev->mask & IN_DELETE_SELF)
+          if (ev->mask & (IN_DELETE_SELF | IN_MOVE_SELF))
             {
-              inotify_rm_watch (wd, fspec->wd);
-              hash_delete (wd_to_name, fspec);
+              inotify_rm_watch (wd, f[i].wd);
+              hash_delete (wd_table, &(f[i]));
             }
-
-          /* Note we get IN_ATTRIB for unlink() as st_nlink decrements.
-             The usual path is a close() done in recheck() triggers
-             an IN_DELETE_SELF event as the inode is removed.
-             However sometimes open() will succeed as even though
-             st_nlink is decremented, the dentry (cache) is not updated.
-             Thus we depend on the IN_DELETE event on the directory
-             to trigger processing for the removed file.  */
-
-          recheck (fspec, false);
+          if (follow_mode == Follow_name)
+            recheck (fspec, false);
 
           continue;
         }
-      check_fspec (fspec, &prev_fspec);
+
+      name = pretty_name (fspec);
+
+      if (fstat (fspec->fd, &stats) != 0)
+        {
+          close_fd (fspec->fd, name);
+          fspec->fd = -1;
+          fspec->errnum = errno;
+          continue;
+        }
+
+      if (S_ISREG (fspec->mode) && stats.st_size < fspec->size)
+        {
+          error (0, 0, _("%s: file truncated"), name);
+          prev_wd = ev->wd;
+          xlseek (fspec->fd, stats.st_size, SEEK_SET, name);
+          fspec->size = stats.st_size;
+        }
+
+      if (ev->wd != prev_wd)
+        {
+          if (print_headers)
+            write_header (name);
+          prev_wd = ev->wd;
+        }
+
+      bytes_read = dump_remainder (name, fspec->fd, COPY_TO_EOF);
+      fspec->size += bytes_read;
+
+      if (fflush (stdout) != 0)
+        error (EXIT_FAILURE, errno, _("write error"));
     }
 }
 #endif
@@ -1745,7 +1415,7 @@ tail_bytes (const char *pretty_filename, int fd, uintmax_t n_bytes,
 
   if (fstat (fd, &stats))
     {
-      error (0, errno, _("cannot fstat %s"), quoteaf (pretty_filename));
+      error (0, errno, _("cannot fstat %s"), quote (pretty_filename));
       return false;
     }
 
@@ -1763,30 +1433,40 @@ tail_bytes (const char *pretty_filename, int fd, uintmax_t n_bytes,
           if (t)
             return t < 0;
         }
-      n_bytes = COPY_TO_EOF;
+      *read_pos += dump_remainder (pretty_filename, fd, COPY_TO_EOF);
     }
   else
     {
-      off_t end_pos = ((! presume_input_pipe && usable_st_size (&stats)
-                        && n_bytes <= OFF_T_MAX)
-                       ? stats.st_size : -1);
-      if (end_pos <= ST_BLKSIZE (stats))
-        return pipe_bytes (pretty_filename, fd, n_bytes, read_pos);
-      off_t current_pos = xlseek (fd, 0, SEEK_CUR, pretty_filename);
-      if (current_pos < end_pos)
+      if ( ! presume_input_pipe
+           && S_ISREG (stats.st_mode) && n_bytes <= OFF_T_MAX)
         {
-          off_t bytes_remaining = end_pos - current_pos;
+          off_t current_pos = xlseek (fd, 0, SEEK_CUR, pretty_filename);
+          off_t end_pos = xlseek (fd, 0, SEEK_END, pretty_filename);
+          off_t diff = end_pos - current_pos;
+          /* Be careful here.  The current position may actually be
+             beyond the end of the file.  */
+          off_t bytes_remaining = diff < 0 ? 0 : diff;
+          off_t nb = n_bytes;
 
-          if (n_bytes < bytes_remaining)
+          if (bytes_remaining <= nb)
             {
-              current_pos = end_pos - n_bytes;
-              xlseek (fd, current_pos, SEEK_SET, pretty_filename);
+              /* From the current position to end of file, there are no
+                 more bytes than have been requested.  So reposition the
+                 file pointer to the incoming current position and print
+                 everything after that.  */
+              *read_pos = xlseek (fd, current_pos, SEEK_SET, pretty_filename);
             }
+          else
+            {
+              /* There are more bytes remaining than were requested.
+                 Back up.  */
+              *read_pos = xlseek (fd, -nb, SEEK_END, pretty_filename);
+            }
+          *read_pos += dump_remainder (pretty_filename, fd, n_bytes);
         }
-      *read_pos = current_pos;
+      else
+        return pipe_bytes (pretty_filename, fd, n_bytes, read_pos);
     }
-
-  *read_pos += dump_remainder (pretty_filename, fd, n_bytes);
   return true;
 }
 
@@ -1801,7 +1481,7 @@ tail_lines (const char *pretty_filename, int fd, uintmax_t n_lines,
 
   if (fstat (fd, &stats))
     {
-      error (0, errno, _("cannot fstat %s"), quoteaf (pretty_filename));
+      error (0, errno, _("cannot fstat %s"), quote (pretty_filename));
       return false;
     }
 
@@ -1834,7 +1514,7 @@ tail_lines (const char *pretty_filename, int fd, uintmax_t n_lines,
         {
           /* Under very unlikely circumstances, it is possible to reach
              this point after positioning the file pointer to end of file
-             via the 'lseek (...SEEK_END)' above.  In that case, reposition
+             via the `lseek (...SEEK_END)' above.  In that case, reposition
              the file pointer back to start_pos before calling pipe_lines.  */
           if (start_pos != -1)
             xlseek (fd, start_pos, SEEK_SET, pretty_filename);
@@ -1900,7 +1580,7 @@ tail_file (struct File_spec *f, uintmax_t n_units)
           f->dev = 0;
         }
       error (0, errno, _("cannot open %s for reading"),
-             quoteaf (pretty_name (f)));
+             quote (pretty_name (f)));
       ok = false;
     }
   else
@@ -1914,25 +1594,24 @@ tail_file (struct File_spec *f, uintmax_t n_units)
         {
           struct stat stats;
 
-#if TAIL_TEST_SLEEP
-          /* Before the tail function provided 'read_pos', there was
+#if TEST_RACE_BETWEEN_FINAL_READ_AND_INITIAL_FSTAT
+          /* Before the tail function provided `read_pos', there was
              a race condition described in the URL below.  This sleep
              call made the window big enough to exercise the problem.  */
-          xnanosleep (1);
+          sleep (1);
 #endif
           f->errnum = ok - 1;
           if (fstat (fd, &stats) < 0)
             {
               ok = false;
               f->errnum = errno;
-              error (0, errno, _("error reading %s"),
-                     quoteaf (pretty_name (f)));
+              error (0, errno, _("error reading %s"), quote (pretty_name (f)));
             }
           else if (!IS_TAILABLE_FILE_TYPE (stats.st_mode))
             {
               error (0, 0, _("%s: cannot follow end of this type of file;\
  giving up on this name"),
-                     quotef (pretty_name (f)));
+                     pretty_name (f));
               ok = false;
               f->errnum = -1;
               f->ignore = true;
@@ -1949,15 +1628,13 @@ tail_file (struct File_spec *f, uintmax_t n_units)
                  to avoid a race condition described by Ken Raeburn:
         http://mail.gnu.org/archive/html/bug-textutils/2003-05/msg00007.html */
               record_open_fd (f, fd, read_pos, &stats, (is_stdin ? -1 : 1));
-              f->remote = fremote (fd, pretty_name (f));
             }
         }
       else
         {
           if (!is_stdin && close (fd))
             {
-              error (0, errno, _("error reading %s"),
-                     quoteaf (pretty_name (f)));
+              error (0, errno, _("error reading %s"), quote (pretty_name (f)));
               ok = false;
             }
         }
@@ -2048,10 +1725,7 @@ parse_obsolete_option (int argc, char * const *argv, uintmax_t *n_units)
   else if ((xstrtoumax (n_string, NULL, 10, n_units, "b")
             & ~LONGINT_INVALID_SUFFIX_CHAR)
            != LONGINT_OK)
-    {
-      error (EXIT_FAILURE, errno, "%s: %s", _("invalid number"),
-             quote (argv[1]));
-    }
+    error (EXIT_FAILURE, 0, _("number in %s is too large"), quote (argv[1]));
 
   /* Set globals.  */
   from_start = t_from_start;
@@ -2068,7 +1742,7 @@ parse_options (int argc, char **argv,
 {
   int c;
 
-  while ((c = getopt_long (argc, argv, "c:n:fFqs:vz0123456789",
+  while ((c = getopt_long (argc, argv, "c:n:fFqs:v0123456789",
                            long_options, NULL))
          != -1)
     {
@@ -2088,10 +1762,17 @@ parse_options (int argc, char **argv,
           else if (*optarg == '-')
             ++optarg;
 
-          *n_units = xdectoumax (optarg, 0, UINTMAX_MAX, "bkKmMGTPEZY0",
-                                 count_lines
-                                 ? _("invalid number of lines")
-                                 : _("invalid number of bytes"), 0);
+          {
+            strtol_error s_err;
+            s_err = xstrtoumax (optarg, NULL, 10, n_units, "bkKmMGTPEZY0");
+            if (s_err != LONGINT_OK)
+              {
+                error (EXIT_FAILURE, 0, "%s: %s", optarg,
+                       (c == 'n'
+                        ? _("invalid number of lines")
+                        : _("invalid number of bytes")));
+              }
+          }
           break;
 
         case 'f':
@@ -2110,9 +1791,15 @@ parse_options (int argc, char **argv,
 
         case MAX_UNCHANGED_STATS_OPTION:
           /* --max-unchanged-stats=N */
-          max_n_unchanged_stats_between_opens =
-            xdectoumax (optarg, 0, UINTMAX_MAX, "",
-              _("invalid maximum number of unchanged stats between opens"), 0);
+          if (xstrtoumax (optarg, NULL, 10,
+                          &max_n_unchanged_stats_between_opens,
+                          "")
+              != LONGINT_OK)
+            {
+              error (EXIT_FAILURE, 0,
+               _("%s: invalid maximum number of unchanged stats between opens"),
+                     optarg);
+            }
           break;
 
         case DISABLE_INOTIFY_OPTION:
@@ -2120,7 +1807,16 @@ parse_options (int argc, char **argv,
           break;
 
         case PID_OPTION:
-          pid = xdectoumax (optarg, 0, PID_T_MAX, "", _("invalid PID"), 0);
+          {
+            strtol_error s_err;
+            unsigned long int tmp_ulong;
+            s_err = xstrtoul (optarg, NULL, 10, &tmp_ulong, "");
+            if (s_err != LONGINT_OK || tmp_ulong > PID_T_MAX)
+              {
+                error (EXIT_FAILURE, 0, _("%s: invalid PID"), optarg);
+              }
+            pid = tmp_ulong;
+          }
           break;
 
         case PRESUME_INPUT_PIPE_OPTION:
@@ -2136,17 +1832,13 @@ parse_options (int argc, char **argv,
             double s;
             if (! (xstrtod (optarg, NULL, &s, c_strtod) && 0 <= s))
               error (EXIT_FAILURE, 0,
-                     _("invalid number of seconds: %s"), quote (optarg));
+                     _("%s: invalid number of seconds"), optarg);
             *sleep_interval = s;
           }
           break;
 
         case 'v':
           *header_mode = always;
-          break;
-
-        case 'z':
-          line_end = '\0';
           break;
 
         case_GETOPT_HELP_CHAR;
@@ -2163,17 +1855,8 @@ parse_options (int argc, char **argv,
         }
     }
 
-  if (reopen_inaccessible_files)
-    {
-      if (!forever)
-        {
-          reopen_inaccessible_files = false;
-          error (0, 0, _("warning: --retry ignored; --retry is useful"
-                         " only when following"));
-        }
-      else if (follow_mode == Follow_descriptor)
-        error (0, 0, _("warning: --retry only effective for the initial open"));
-    }
+  if (reopen_inaccessible_files && follow_mode != Follow_name)
+    error (0, 0, _("warning: --retry is useful mainly when following by name"));
 
   if (pid && !forever)
     error (0, 0,
@@ -2183,35 +1866,6 @@ parse_options (int argc, char **argv,
       error (0, 0, _("warning: --pid=PID is not supported on this system"));
       pid = 0;
     }
-}
-
-/* Mark as '.ignore'd each member of F that corresponds to a
-   pipe or fifo, and return the number of non-ignored members.  */
-static size_t
-ignore_fifo_and_pipe (struct File_spec *f, size_t n_files)
-{
-  /* When there is no FILE operand and stdin is a pipe or FIFO
-     POSIX requires that tail ignore the -f option.
-     Since we allow multiple FILE operands, we extend that to say: with -f,
-     ignore any "-" operand that corresponds to a pipe or FIFO.  */
-  size_t n_viable = 0;
-
-  size_t i;
-  for (i = 0; i < n_files; i++)
-    {
-      bool is_a_fifo_or_pipe =
-        (STREQ (f[i].name, "-")
-         && !f[i].ignore
-         && 0 <= f[i].fd
-         && (S_ISFIFO (f[i].mode)
-             || (HAVE_FIFO_PIPES != 1 && isapipe (f[i].fd))));
-      if (is_a_fifo_or_pipe)
-        f[i].ignore = true;
-      else
-        ++n_viable;
-    }
-
-  return n_viable;
 }
 
 int
@@ -2246,22 +1900,19 @@ main (int argc, char **argv)
 
   count_lines = true;
   forever = from_start = print_headers = false;
-  line_end = '\n';
   obsolete_option = parse_obsolete_option (argc, argv, &n_units);
   argc -= obsolete_option;
   argv += obsolete_option;
   parse_options (argc, argv, &n_units, &header_mode, &sleep_interval);
 
   /* To start printing with item N_UNITS from the start of the file, skip
-     N_UNITS - 1 items.  'tail -n +0' is actually meaningless, but for Unix
-     compatibility it's treated the same as 'tail -n +1'.  */
+     N_UNITS - 1 items.  `tail -n +0' is actually meaningless, but for Unix
+     compatibility it's treated the same as `tail -n +1'.  */
   if (from_start)
     {
       if (n_units)
         --n_units;
     }
-
-  IF_LINT (assert (0 <= argc));
 
   if (optind < argc)
     {
@@ -2284,19 +1935,15 @@ main (int argc, char **argv)
 
     /* When following by name, there must be a name.  */
     if (found_hyphen && follow_mode == Follow_name)
-      error (EXIT_FAILURE, 0, _("cannot follow %s by name"), quoteaf ("-"));
+      error (EXIT_FAILURE, 0, _("cannot follow %s by name"), quote ("-"));
 
-    /* When following forever, warn if any file is '-'.
+    /* When following forever, warn if any file is `-'.
        This is only a warning, since tail's output (before a failing seek,
        and that from any non-stdin files) might still be useful.  */
     if (forever && found_hyphen && isatty (STDIN_FILENO))
       error (0, 0, _("warning: following standard input"
                      " indefinitely is ineffective"));
   }
-
-  /* Don't read anything if we'll never output anything.  */
-  if (! n_units && ! forever && ! from_start)
-    return EXIT_SUCCESS;
 
   F = xnmalloc (n_files, sizeof *F);
   for (i = 0; i < n_files; i++)
@@ -2312,61 +1959,46 @@ main (int argc, char **argv)
   for (i = 0; i < n_files; i++)
     ok &= tail_file (&F[i], n_units);
 
-  if (forever && ignore_fifo_and_pipe (F, n_files))
+  /* When there is no FILE operand and stdin is a pipe or FIFO
+     POSIX requires that tail ignore the -f option.
+     Since we allow multiple FILE operands, we extend that to say:
+     ignore any "-" operand that corresponds to a pipe or FIFO.  */
+  size_t n_viable = 0;
+  for (i = 0; i < n_files; i++)
+    {
+      bool is_a_fifo_or_pipe =
+        (STREQ (F[i].name, "-")
+         && !F[i].ignore
+         && 0 <= F[i].fd
+         && (S_ISFIFO (F[i].mode)
+             || (HAVE_FIFO_PIPES != 1 && isapipe (F[i].fd))));
+      if (is_a_fifo_or_pipe)
+        F[i].ignore = true;
+      else
+        ++n_viable;
+    }
+
+  if (forever && n_viable)
     {
 #if HAVE_INOTIFY
-      /* tailable_stdin() checks if the user specifies stdin via  "-",
-         or implicitly by providing no arguments. If so, we won't use inotify.
+      /* If the user specifies stdin via a command line argument of "-",
+         or implicitly by providing no arguments, we won't use inotify.
          Technically, on systems with a working /dev/stdin, we *could*,
          but would it be worth it?  Verifying that it's a real device
          and hooked up to stdin is not trivial, while reverting to
-         non-inotify-based tail_forever is easy and portable.
+         non-inotify-based tail_forever is easy and portable.  */
+      bool stdin_cmdline_arg = false;
 
-         any_remote_file() checks if the user has specified any
-         files that reside on remote file systems.  inotify is not used
-         in this case because it would miss any updates to the file
-         that were not initiated from the local system.
+      for (i = 0; i < n_files; i++)
+        if (!F[i].ignore && STREQ (F[i].name, "-"))
+          stdin_cmdline_arg = true;
 
-         any_non_remote_file() checks if the user has specified any
-         files that don't reside on remote file systems.  inotify is not used
-         if there are no open files, as we can't determine if those file
-         will be on a remote file system.
-
-         any_symlinks() checks if the user has specified any symbolic links.
-         inotify is not used in this case because it returns updated _targets_
-         which would not match the specified names.  If we tried to always
-         use the target names, then we would miss changes to the symlink itself.
-
-         ok is false when one of the files specified could not be opened for
-         reading.  In this case and when following by descriptor,
-         tail_forever_inotify() cannot be used (in its current implementation).
-
-         FIXME: inotify doesn't give any notification when a new
-         (remote) file or directory is mounted on top a watched file.
-         When follow_mode == Follow_name we would ideally like to detect that.
-         Note if there is a change to the original file then we'll
-         recheck it and follow the new file, or ignore it if the
-         file has changed to being remote.
-
-         FIXME: when using inotify, and a directory for a watched file
-         is recreated, then we don't recheck any new file when
-         follow_mode == Follow_name.
-
-         FIXME-maybe: inotify has a watch descriptor per inode, and hence with
-         our current hash implementation will only --follow data for one
-         of the names when multiple hardlinked files are specified, or
-         for one name when a name is specified multiple times.  */
-      if (!disable_inotify && (tailable_stdin (F, n_files)
-                               || any_remote_file (F, n_files)
-                               || ! any_non_remote_file (F, n_files)
-                               || any_symlinks (F, n_files)
-                               || (!ok && follow_mode == Follow_descriptor)))
-        disable_inotify = true;
-
-      if (!disable_inotify)
+      if (!disable_inotify && !stdin_cmdline_arg)
         {
           int wd = inotify_init ();
-          if (0 <= wd)
+          if (wd < 0)
+            error (0, errno, _("inotify cannot be used, reverting to polling"));
+          else
             {
               /* Flush any output from tail_file, now, since
                  tail_forever_inotify flushes only after writing,
@@ -2374,32 +2006,17 @@ main (int argc, char **argv)
               if (fflush (stdout) != 0)
                 error (EXIT_FAILURE, errno, _("write error"));
 
-              if (! tail_forever_inotify (wd, F, n_files, sleep_interval))
-                return EXIT_FAILURE;
-            }
-          error (0, errno, _("inotify cannot be used, reverting to polling"));
+              tail_forever_inotify (wd, F, n_files, sleep_interval);
 
-          /* Free resources as this process can be long lived,
-            and we may have exhausted system resources above.  */
-
-          for (i = 0; i < n_files; i++)
-            {
-              /* It's OK to remove the same watch multiple times,
-                ignoring the EINVAL from redundant calls.  */
-              if (F[i].wd != -1)
-                inotify_rm_watch (wd, F[i].wd);
-              if (F[i].parent_wd != -1)
-                inotify_rm_watch (wd, F[i].parent_wd);
+              /* The only way the above returns is upon failure.  */
+              exit (EXIT_FAILURE);
             }
         }
 #endif
-      disable_inotify = true;
       tail_forever (F, n_files, sleep_interval);
     }
 
-  IF_LINT (free (F));
-
   if (have_read_stdin && close (STDIN_FILENO) < 0)
     error (EXIT_FAILURE, errno, "-");
-  return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+  exit (ok ? EXIT_SUCCESS : EXIT_FAILURE);
 }

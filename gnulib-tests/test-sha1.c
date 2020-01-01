@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /*
- * Copyright (C) 2005, 2008-2016 Free Software Foundation, Inc.
+ * Copyright (C) 2005, 2008, 2009 Free Software Foundation, Inc.
  * Written by Simon Josefsson
  *
  * This program is free software: you can redistribute it and/or modify
@@ -23,7 +26,7 @@
 #include "sha1.h"
 
 int
-main (void)
+main (int argc, char *argv[])
 {
   const char *in1 = "abcdefgh";
   const char *out1 = "\x42\x5a\xf1\x2a\x07\x43\x50\x2b"
@@ -31,15 +34,15 @@ main (void)
   char buf[SHA1_DIGEST_SIZE];
 
   if (memcmp (sha1_buffer (in1, strlen (in1), buf),
-              out1, SHA1_DIGEST_SIZE) != 0)
+	      out1, SHA1_DIGEST_SIZE) != 0)
     {
       size_t i;
       printf ("expected:\n");
       for (i = 0; i < SHA1_DIGEST_SIZE; i++)
-        printf ("%02x ", out1[i] & 0xFFu);
+	printf ("%02x ", out1[i] & 0xFF);
       printf ("\ncomputed:\n");
       for (i = 0; i < SHA1_DIGEST_SIZE; i++)
-        printf ("%02x ", buf[i] & 0xFFu);
+	printf ("%02x ", buf[i] & 0xFF);
       printf ("\n");
       return 1;
     }

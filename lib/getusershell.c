@@ -1,7 +1,7 @@
 /* getusershell.c -- Return names of valid user shells.
 
-   Copyright (C) 1991, 1997, 2000-2001, 2003-2006, 2008-2016 Free Software
-   Foundation, Inc.
+   Copyright (C) 1991, 1997, 2000, 2001, 2003, 2004, 2005, 2006, 2008 Free
+   Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -59,8 +59,8 @@ static char const* const default_shells[] =
   "/bin/sh", "/bin/csh", "/usr/bin/sh", "/usr/bin/csh", NULL
 };
 
-/* Index of the next shell in 'default_shells' to return.
-   0 means we are not using 'default_shells'. */
+/* Index of the next shell in `default_shells' to return.
+   0 means we are not using `default_shells'. */
 static size_t default_index = 0;
 
 /* Input stream from the shells file. */
@@ -69,7 +69,7 @@ static FILE *shellstream = NULL;
 /* Line of input from the shells file. */
 static char *line = NULL;
 
-/* Number of bytes allocated for 'line'. */
+/* Number of bytes allocated for `line'. */
 static size_t line_size = 0;
 
 /* Return an entry from the shells file, ignoring comment lines.
@@ -83,8 +83,8 @@ getusershell (void)
   if (default_index > 0)
     {
       if (default_shells[default_index])
-        /* Not at the end of the list yet.  */
-        return xstrdup (default_shells[default_index++]);
+	/* Not at the end of the list yet.  */
+	return xstrdup (default_shells[default_index++]);
       return NULL;
     }
 
@@ -92,19 +92,19 @@ getusershell (void)
     {
       shellstream = fopen (SHELLS_FILE, "r");
       if (shellstream == NULL)
-        {
-          /* No shells file.  Use the default list.  */
-          default_index = 1;
-          return xstrdup (default_shells[0]);
-        }
+	{
+	  /* No shells file.  Use the default list.  */
+	  default_index = 1;
+	  return xstrdup (default_shells[0]);
+	}
     }
 
   while (readname (&line, &line_size, shellstream))
     {
       if (*line != '#')
-        return line;
+	return line;
     }
-  return NULL;                  /* End of file. */
+  return NULL;			/* End of file. */
 }
 
 /* Rewind the shells file. */
@@ -150,9 +150,9 @@ readname (char **name, size_t *size, FILE *stream)
   for (;;)
     {
       if (*size <= name_index)
-        *name = x2nrealloc (*name, size, sizeof **name);
+	*name = x2nrealloc (*name, size, sizeof **name);
       if (c == EOF || isspace (c))
-        break;
+	break;
       (*name)[name_index++] = c;
       c = getc (stream);
     }

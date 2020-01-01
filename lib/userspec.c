@@ -1,5 +1,5 @@
 /* userspec.c -- Parse a user and group string.
-   Copyright (C) 1989-1992, 1997-1998, 2000, 2002-2016 Free Software
+   Copyright (C) 1989-1992, 1997-1998, 2000, 2002-2007 Free Software
    Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
@@ -79,8 +79,8 @@
    - It's typically faster.
    POSIX says that only '0' through '9' are digits.  Prefer ISDIGIT to
    isdigit unless it's important to use the locale's definition
-   of "digit" even when the host does not conform to POSIX.  */
-# define ISDIGIT(c) ((unsigned int) (c) - '0' <= 9)
+   of `digit' even when the host does not conform to POSIX.  */
+#define ISDIGIT(c) ((unsigned int) (c) - '0' <= 9)
 
 /* Return true if STR represents an unsigned decimal integer.  */
 
@@ -90,7 +90,7 @@ is_number (const char *str)
   do
     {
       if (!ISDIGIT (*str))
-        return false;
+	return false;
     }
   while (*++str);
 
@@ -100,8 +100,8 @@ is_number (const char *str)
 
 static char const *
 parse_with_separator (char const *spec, char const *separator,
-                      uid_t *uid, gid_t *gid,
-                      char **username, char **groupname)
+		      uid_t *uid, gid_t *gid,
+		      char **username, char **groupname)
 {
   static const char *E_invalid_user = N_("invalid user");
   static const char *E_invalid_group = N_("invalid group");
@@ -114,13 +114,10 @@ parse_with_separator (char const *spec, char const *separator,
   char const *g;
   char *gname = NULL;
   uid_t unum = *uid;
-  gid_t gnum = gid ? *gid : -1;
+  gid_t gnum = *gid;
 
   error_msg = NULL;
-  if (username)
-    *username = NULL;
-  if (groupname)
-    *groupname = NULL;
+  *username = *groupname = NULL;
 
   /* Set U and G to nonzero length strings corresponding to user and
      group specifiers or to NULL.  If U is not NULL, it is a newly
@@ -130,16 +127,16 @@ parse_with_separator (char const *spec, char const *separator,
   if (separator == NULL)
     {
       if (*spec)
-        u = xstrdup (spec);
+	u = xstrdup (spec);
     }
   else
     {
       size_t ulen = separator - spec;
       if (ulen != 0)
-        {
-          u = xmemdup (spec, ulen + 1);
-          u[ulen] = '\0';
-        }
+	{
+	  u = xmemdup (spec, ulen + 1);
+	  u[ulen] = '\0';
+	}
     }
 
   g = (separator == NULL || *(separator + 1) == '\0'
@@ -148,7 +145,7 @@ parse_with_separator (char const *spec, char const *separator,
 
 #ifdef __DJGPP__
   /* Pretend that we are the user U whose group is G.  This makes
-     pwd and grp functions "know" about the UID and GID of these.  */
+     pwd and grp functions ``know'' about the UID and GID of these.  */
   if (u && !is_number (u))
     setenv ("USER", u, 1);
   if (g && !is_number (g))
@@ -160,38 +157,38 @@ parse_with_separator (char const *spec, char const *separator,
       /* If it starts with "+", skip the look-up.  */
       pwd = (*u == '+' ? NULL : getpwnam (u));
       if (pwd == NULL)
-        {
-          bool use_login_group = (separator != NULL && g == NULL);
-          if (use_login_group)
-            {
-              /* If there is no group,
-                 then there may not be a trailing ":", either.  */
-              error_msg = E_bad_spec;
-            }
-          else
-            {
-              unsigned long int tmp;
-              if (xstrtoul (u, NULL, 10, &tmp, "") == LONGINT_OK
-                  && tmp <= MAXUID && (uid_t) tmp != (uid_t) -1)
-                unum = tmp;
-              else
-                error_msg = E_invalid_user;
-            }
-        }
+	{
+	  bool use_login_group = (separator != NULL && g == NULL);
+	  if (use_login_group)
+	    {
+	      /* If there is no group,
+		 then there may not be a trailing ":", either.  */
+	      error_msg = E_bad_spec;
+	    }
+	  else
+	    {
+	      unsigned long int tmp;
+	      if (xstrtoul (u, NULL, 10, &tmp, "") == LONGINT_OK
+		  && tmp <= MAXUID)
+		unum = tmp;
+	      else
+		error_msg = E_invalid_user;
+	    }
+	}
       else
-        {
-          unum = pwd->pw_uid;
-          if (g == NULL && separator != NULL)
-            {
-              /* A separator was given, but a group was not specified,
-                 so get the login group.  */
-              char buf[INT_BUFSIZE_BOUND (uintmax_t)];
-              gnum = pwd->pw_gid;
-              grp = getgrgid (gnum);
-              gname = xstrdup (grp ? grp->gr_name : umaxtostr (gnum, buf));
-              endgrent ();
-            }
-        }
+	{
+	  unum = pwd->pw_uid;
+	  if (g == NULL && separator != NULL)
+	    {
+	      /* A separator was given, but a group was not specified,
+	         so get the login group.  */
+	      char buf[INT_BUFSIZE_BOUND (uintmax_t)];
+	      gnum = pwd->pw_gid;
+	      grp = getgrgid (gnum);
+	      gname = xstrdup (grp ? grp->gr_name : umaxtostr (gnum, buf));
+	      endgrent ();
+	    }
+	}
       endpwent ();
     }
 
@@ -201,53 +198,43 @@ parse_with_separator (char const *spec, char const *separator,
       /* If it starts with "+", skip the look-up.  */
       grp = (*g == '+' ? NULL : getgrnam (g));
       if (grp == NULL)
-        {
-          unsigned long int tmp;
-          if (xstrtoul (g, NULL, 10, &tmp, "") == LONGINT_OK
-              && tmp <= MAXGID && (gid_t) tmp != (gid_t) -1)
-            gnum = tmp;
-          else
-            error_msg = E_invalid_group;
-        }
+	{
+	  unsigned long int tmp;
+	  if (xstrtoul (g, NULL, 10, &tmp, "") == LONGINT_OK && tmp <= MAXGID)
+	    gnum = tmp;
+	  else
+	    error_msg = E_invalid_group;
+	}
       else
-        gnum = grp->gr_gid;
-      endgrent ();              /* Save a file descriptor.  */
+	gnum = grp->gr_gid;
+      endgrent ();		/* Save a file descriptor.  */
       gname = xstrdup (g);
     }
 
   if (error_msg == NULL)
     {
       *uid = unum;
-      if (gid)
-        *gid = gnum;
-      if (username)
-        {
-          *username = u;
-          u = NULL;
-        }
-      if (groupname)
-        {
-          *groupname = gname;
-          gname = NULL;
-        }
+      *gid = gnum;
+      *username = u;
+      *groupname = gname;
+      u = NULL;
     }
+  else
+    free (gname);
 
   free (u);
-  free (gname);
-  return error_msg ? _(error_msg) : NULL;
+  return _(error_msg);
 }
 
 /* Extract from SPEC, which has the form "[user][:.][group]",
    a USERNAME, UID U, GROUPNAME, and GID G.
-   If the GID parameter is NULL the entire SPEC is treated as a user.
-   If the USERNAME and GROUPNAME parameters are NULL they're ignored.
    Either user or group, or both, must be present.
    If the group is omitted but the separator is given,
    use the given user's login group.
-   If SPEC contains a ':', then use that as the separator, ignoring
-   any '.'s.  If there is no ':', but there is a '.', then first look
+   If SPEC contains a `:', then use that as the separator, ignoring
+   any `.'s.  If there is no `:', but there is a `.', then first look
    up the entire SPEC as a login name.  If that look-up fails, then
-   try again interpreting the '.'  as a separator.
+   try again interpreting the `.'  as a separator.
 
    USERNAME and GROUPNAME will be in newly malloc'd memory.
    Either one might be NULL instead, indicating that it was not
@@ -257,24 +244,24 @@ parse_with_separator (char const *spec, char const *separator,
 
 char const *
 parse_user_spec (char const *spec, uid_t *uid, gid_t *gid,
-                 char **username, char **groupname)
+		 char **username, char **groupname)
 {
-  char const *colon = gid ? strchr (spec, ':') : NULL;
+  char const *colon = strchr (spec, ':');
   char const *error_msg =
     parse_with_separator (spec, colon, uid, gid, username, groupname);
 
-  if (gid && !colon && error_msg)
+  if (!colon && error_msg)
     {
       /* If there's no colon but there is a dot, and if looking up the
-         whole spec failed (i.e., the spec is not an owner name that
-         includes a dot), then try again, but interpret the dot as a
-         separator.  This is a compatible extension to POSIX, since
-         the POSIX-required behavior is always tried first.  */
+	 whole spec failed (i.e., the spec is not a owner name that
+	 includes a dot), then try again, but interpret the dot as a
+	 separator.  This is a compatible extension to POSIX, since
+	 the POSIX-required behavior is always tried first.  */
 
       char const *dot = strchr (spec, '.');
       if (dot
-          && ! parse_with_separator (spec, dot, uid, gid, username, groupname))
-        error_msg = NULL;
+	  && ! parse_with_separator (spec, dot, uid, gid, username, groupname))
+	error_msg = NULL;
     }
 
   return error_msg;
@@ -301,21 +288,15 @@ main (int argc, char **argv)
       e = parse_user_spec (tmp, &uid, &gid, &username, &groupname);
       free (tmp);
       printf ("%s: %lu %lu %s %s %s\n",
-              argv[i],
-              (unsigned long int) uid,
-              (unsigned long int) gid,
-              NULL_CHECK (username),
-              NULL_CHECK (groupname),
-              NULL_CHECK (e));
+	      argv[i],
+	      (unsigned long int) uid,
+	      (unsigned long int) gid,
+	      NULL_CHECK (username),
+	      NULL_CHECK (groupname),
+	      NULL_CHECK (e));
     }
 
   exit (0);
 }
 
 #endif
-
-/*
-Local Variables:
-indent-tabs-mode: nil
-End:
-*/

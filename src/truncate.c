@@ -1,5 +1,5 @@
 /* truncate -- truncate or extend the length of files.
-   Copyright (C) 2008-2016 Free Software Foundation, Inc.
+   Copyright (C) 2008-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -18,7 +18,12 @@
 
    This is backwards compatible with the FreeBSD utility, but is more
    flexible wrt the size specifications and the use of long options,
-   to better fit the "GNU" environment.  */
+   to better fit the "GNU" environment.
+
+   Note if !defined(HAVE_FTRUNCATE) then the --skip-ftruncate configure flag
+   was specified or we're in a mingw environment. In these cases gnulib
+   emulation will be used and GNULIB_FTRUNCATE is defined. Note if emulation
+   can't even be provided ftruncate() will return EIO.  */
 
 #include <config.h>             /* sets _FILE_OFFSET_BITS=64 etc. */
 #include <stdio.h>
@@ -27,11 +32,11 @@
 
 #include "system.h"
 #include "error.h"
+#include "posixver.h"
 #include "quote.h"
-#include "stat-size.h"
-#include "xdectoint.h"
+#include "xstrtol.h"
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "truncate"
 
 #define AUTHORS proper_name_utf8 ("Padraig Brady", "P\303\241draig Brady")
@@ -59,11 +64,39 @@ static struct option const longopts[] =
 typedef enum
 { rm_abs = 0, rm_rel, rm_min, rm_max, rm_rdn, rm_rup } rel_mode_t;
 
+/* Set size to the value of STR, interpreted as a decimal integer,
+   optionally multiplied by various values.
+   Return -1 on error, 0 on success.
+
+   This supports dd BLOCK size suffixes + lowercase g,t,m for bsd compat
+   Note we don't support dd's b=512, c=1, w=2 or 21x512MiB formats.  */
+static int
+parse_len (char const *str, off_t *size)
+{
+  enum strtol_error e;
+  intmax_t tmp_size;
+  e = xstrtoimax (str, NULL, 10, &tmp_size, "EgGkKmMPtTYZ0");
+  if (e == LONGINT_OK
+      && !(OFF_T_MIN <= tmp_size && tmp_size <= OFF_T_MAX))
+    e = LONGINT_OVERFLOW;
+
+  if (e == LONGINT_OK)
+    {
+      errno = 0;
+      *size = tmp_size;
+      return 0;
+    }
+
+  errno = (e == LONGINT_OVERFLOW ? EOVERFLOW : 0);
+  return -1;
+}
+
 void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("Usage: %s OPTION... FILE...\n"), program_name);
@@ -75,43 +108,47 @@ A FILE argument that does not exist is created.\n\
 If a FILE is larger than the specified size, the extra data is lost.\n\
 If a FILE is shorter, it is extended and the extended part (hole)\n\
 reads as zero bytes.\n\
+\n\
 "), stdout);
-
-      emit_mandatory_arg_note ();
-
+      fputs (_("\
+Mandatory arguments to long options are mandatory for short options too.\n\
+"), stdout);
       fputs (_("\
   -c, --no-create        do not create any files\n\
 "), stdout);
       fputs (_("\
-  -o, --io-blocks        treat SIZE as number of IO blocks instead of bytes\n\
+  -o, --io-blocks        Treat SIZE as number of IO blocks instead of bytes\n\
 "), stdout);
       fputs (_("\
-  -r, --reference=RFILE  base size on RFILE\n\
-  -s, --size=SIZE        set or adjust the file size by SIZE bytes\n"), stdout);
+  -r, --reference=FILE   use this FILE's size\n\
+  -s, --size=SIZE        use this SIZE\n"), stdout);
       fputs (HELP_OPTION_DESCRIPTION, stdout);
       fputs (VERSION_OPTION_DESCRIPTION, stdout);
       emit_size_note ();
       fputs (_("\n\
 SIZE may also be prefixed by one of the following modifying characters:\n\
-'+' extend by, '-' reduce by, '<' at most, '>' at least,\n\
-'/' round down to multiple of, '%' round up to multiple of.\n"), stdout);
-      emit_ancillary_info (PROGRAM_NAME);
+`+' extend by, `-' reduce by, `<' at most, `>' at least,\n\
+`/' round down to multiple of, `%' round up to multiple of.\n"), stdout);
+      fputs (_("\
+\n\
+Note that the -r and -s options are mutually exclusive.\n\
+"), stdout);
+      emit_ancillary_info ();
     }
   exit (status);
 }
 
-/* return true on success, false on error.  */
-static bool
-do_ftruncate (int fd, char const *fname, off_t ssize, off_t rsize,
-              rel_mode_t rel_mode)
+/* return 1 on error, 0 on success */
+static int
+do_ftruncate (int fd, char const *fname, off_t ssize, rel_mode_t rel_mode)
 {
   struct stat sb;
   off_t nsize;
 
-  if ((block_mode || (rel_mode && rsize < 0)) && fstat (fd, &sb) != 0)
+  if ((block_mode || rel_mode) && fstat (fd, &sb) != 0)
     {
-      error (0, errno, _("cannot fstat %s"), quoteaf (fname));
-      return false;
+      error (0, errno, _("cannot fstat %s"), quote (fname));
+      return 1;
     }
   if (block_mode)
     {
@@ -122,43 +159,30 @@ do_ftruncate (int fd, char const *fname, off_t ssize, off_t rsize,
                  _("overflow in %" PRIdMAX
                    " * %" PRIdMAX " byte blocks for file %s"),
                  (intmax_t) ssize, (intmax_t) blksize,
-                 quoteaf (fname));
-          return false;
+                 quote (fname));
+          return 1;
         }
       ssize *= blksize;
     }
   if (rel_mode)
     {
-      uintmax_t fsize;
+      uintmax_t const fsize = sb.st_size;
 
-      if (0 <= rsize)
-        fsize = rsize;
-      else
+      if (sb.st_size < 0)
         {
-          off_t file_size;
-          if (usable_st_size (&sb))
+          /* Complain only for a regular file, a directory,
+             or a shared memory object, as POSIX 1003.1-2004 specifies
+             ftruncate's behavior only for these file types.  */
+          if (S_ISREG (sb.st_mode) || S_ISDIR (sb.st_mode)
+              || S_TYPEISSHM (&sb))
             {
-              file_size = sb.st_size;
-              if (file_size < 0)
-                {
-                  /* Sanity check.  Overflow is the only reason I can think
-                     this would ever go negative. */
-                  error (0, 0, _("%s has unusable, apparently negative size"),
-                         quoteaf (fname));
-                  return false;
-                }
+              /* overflow is the only reason I can think
+                 this would ever go negative for the above types */
+              error (0, 0, _("%s has unusable, apparently negative size"),
+                     quote (fname));
+              return 1;
             }
-          else
-            {
-              file_size = lseek (fd, 0, SEEK_END);
-              if (file_size < 0)
-                {
-                  error (0, errno, _("cannot get the size of %s"),
-                         quoteaf (fname));
-                  return false;
-                }
-            }
-          fsize = file_size;
+          return 0;
         }
 
       if (rel_mode == rm_min)
@@ -176,8 +200,8 @@ do_ftruncate (int fd, char const *fname, off_t ssize, off_t rsize,
           if (overflow > OFF_T_MAX)
             {
               error (0, 0, _("overflow rounding up size of file %s"),
-                     quoteaf (fname));
-              return false;
+                     quote (fname));
+              return 1;
             }
           nsize = overflow;
         }
@@ -186,8 +210,8 @@ do_ftruncate (int fd, char const *fname, off_t ssize, off_t rsize,
           if (ssize > OFF_T_MAX - (off_t)fsize)
             {
               error (0, 0, _("overflow extending size of file %s"),
-                     quoteaf (fname));
-              return false;
+                     quote (fname));
+              return 1;
             }
           nsize = fsize + ssize;
         }
@@ -199,24 +223,39 @@ do_ftruncate (int fd, char const *fname, off_t ssize, off_t rsize,
 
   if (ftruncate (fd, nsize) == -1)      /* note updates mtime & ctime */
     {
-      error (0, errno,
-             _("failed to truncate %s at %" PRIdMAX " bytes"), quoteaf (fname),
-             (intmax_t) nsize);
-      return false;
+      /* Complain only when ftruncate fails on a regular file, a
+         directory, or a shared memory object, as POSIX 1003.1-2004
+         specifies ftruncate's behavior only for these file types.
+         For example, do not complain when Linux kernel 2.4 ftruncate
+         fails on /dev/fd0.  */
+      int const ftruncate_errno = errno;
+      if (fstat (fd, &sb) != 0)
+        {
+          error (0, errno, _("cannot fstat %s"), quote (fname));
+          return 1;
+        }
+      else if (S_ISREG (sb.st_mode) || S_ISDIR (sb.st_mode)
+               || S_TYPEISSHM (&sb))
+        {
+          error (0, ftruncate_errno,
+                 _("truncating %s at %" PRIdMAX " bytes"), quote (fname),
+                 (intmax_t) nsize);
+          return 1;
+        }
+      return 0;
     }
 
-  return true;
+  return 0;
 }
 
 int
 main (int argc, char **argv)
 {
   bool got_size = false;
-  bool errors = false;
-  off_t size IF_LINT ( = 0);
-  off_t rsize = -1;
+  off_t size IF_LINT (= 0);
   rel_mode_t rel_mode = rm_abs;
-  int c, fd = -1, oflags;
+  mode_t omode;
+  int c, errors = 0, fd = -1, oflags;
   char const *fname;
 
   initialize_main (&argc, &argv);
@@ -279,10 +318,9 @@ main (int argc, char **argv)
                 }
               rel_mode = rm_rel;
             }
-          /* Support dd BLOCK size suffixes + lowercase g,t,m for bsd compat.
-             Note we don't support dd's b=512, c=1, w=2 or 21x512MiB formats. */
-          size = xdectoimax (optarg, OFF_T_MIN, OFF_T_MAX, "EgGkKmMPtTYZ0",
-                             _("Invalid number"), 0);
+          if (parse_len (optarg, &size) == -1)
+            error (EXIT_FAILURE, errno, _("invalid number %s"),
+                   quote (optarg));
           /* Rounding to multiple of 0 is nonsensical */
           if ((rel_mode == rm_rup || rel_mode == rm_rdn) && size == 0)
             error (EXIT_FAILURE, 0, _("division by zero"));
@@ -302,16 +340,9 @@ main (int argc, char **argv)
   argc -= optind;
 
   /* must specify either size or reference file */
-  if (!ref_file && !got_size)
+  if ((ref_file && got_size) || (!ref_file && !got_size))
     {
-      error (0, 0, _("you must specify either %s or %s"),
-             quote_n (0, "--size"), quote_n (1, "--reference"));
-      usage (EXIT_FAILURE);
-    }
-  /* must specify a relative size with a reference file */
-  if (ref_file && got_size && !rel_mode)
-    {
-      error (0, 0, _("you must specify a relative %s with %s"),
+      error (0, 0, _("you must specify one of %s or %s"),
              quote_n (0, "--size"), quote_n (1, "--reference"));
       usage (EXIT_FAILURE);
     }
@@ -332,52 +363,38 @@ main (int argc, char **argv)
   if (ref_file)
     {
       struct stat sb;
-      off_t file_size = -1;
       if (stat (ref_file, &sb) != 0)
-        error (EXIT_FAILURE, errno, _("cannot stat %s"), quoteaf (ref_file));
-      if (usable_st_size (&sb))
-        file_size = sb.st_size;
-      else
-        {
-          int ref_fd = open (ref_file, O_RDONLY);
-          if (0 <= ref_fd)
-            {
-              off_t file_end = lseek (ref_fd, 0, SEEK_END);
-              int saved_errno = errno;
-              close (ref_fd); /* ignore failure */
-              if (0 <= file_end)
-                file_size = file_end;
-              else
-                {
-                  /* restore, in case close clobbered it. */
-                  errno = saved_errno;
-                }
-            }
-        }
-      if (file_size < 0)
-        error (EXIT_FAILURE, errno, _("cannot get the size of %s"),
-               quoteaf (ref_file));
-      if (!got_size)
-        size = file_size;
-      else
-        rsize = file_size;
+        error (EXIT_FAILURE, errno, _("cannot stat %s"), quote (ref_file));
+      size = sb.st_size;
     }
 
   oflags = O_WRONLY | (no_create ? 0 : O_CREAT) | O_NONBLOCK;
+  omode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
 
   while ((fname = *argv++) != NULL)
     {
-      if ((fd = open (fname, oflags, MODE_RW_UGO)) == -1)
+      if ((fd = open (fname, oflags, omode)) == -1)
         {
-          /* 'truncate -s0 -c no-such-file'  shouldn't gen error
-             'truncate -s0 no-such-dir/file' should gen ENOENT error
-             'truncate -s0 no-such-dir/' should gen EISDIR error
-             'truncate -s0 .' should gen EISDIR error */
+          /* `truncate -s0 -c no-such-file`  shouldn't gen error
+             `truncate -s0 no-such-dir/file` should gen ENOENT error
+             `truncate -s0 no-such-dir/` should gen EISDIR error
+             `truncate -s0 .` should gen EISDIR error */
           if (!(no_create && errno == ENOENT))
             {
-              error (0, errno, _("cannot open %s for writing"),
-                     quoteaf (fname));
-              errors = true;
+              int const open_errno = errno;
+              struct stat sb;
+              if (stat (fname, &sb) == 0)
+                {
+                  /* Complain only for a regular file, a directory,
+                     or a shared memory object, as POSIX 1003.1-2004 specifies
+                     ftruncate's behavior only for these file types.  */
+                  if (!S_ISREG (sb.st_mode) && !S_ISDIR (sb.st_mode)
+                      && !S_TYPEISSHM (&sb))
+                    continue;
+                }
+              error (0, open_errno, _("cannot open %s for writing"),
+                     quote (fname));
+              errors++;
             }
           continue;
         }
@@ -385,11 +402,11 @@ main (int argc, char **argv)
 
       if (fd != -1)
         {
-          errors |= !do_ftruncate (fd, fname, size, rsize, rel_mode);
+          errors += do_ftruncate (fd, fname, size, rel_mode);
           if (close (fd) != 0)
             {
-              error (0, errno, _("failed to close %s"), quoteaf (fname));
-              errors = true;
+              error (0, errno, _("closing %s"), quote (fname));
+              errors++;
             }
         }
     }

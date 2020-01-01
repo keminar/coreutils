@@ -1,6 +1,6 @@
 /* Generate random integers.
 
-   Copyright (C) 2006-2016 Free Software Foundation, Inc.
+   Copyright (C) 2006, 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -34,8 +34,7 @@ struct randint_source;
 
 struct randint_source *randint_new (struct randread_source *);
 struct randint_source *randint_all_new (char const *, size_t);
-struct randread_source *randint_get_source (struct randint_source const *)
-  _GL_ATTRIBUTE_PURE;
+struct randread_source *randint_get_source (struct randint_source const *);
 randint randint_genmax (struct randint_source *, randint genmax);
 
 /* Consume random data from *S to generate a random number in the range

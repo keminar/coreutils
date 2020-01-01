@@ -1,5 +1,5 @@
 /* expr -- evaluate expressions.
-   Copyright (C) 1986-2016 Free Software Foundation, Inc.
+   Copyright (C) 86, 1991-1997, 1999-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
    Modified for arbitrary-precision calculation by James Youngman.
 
    This program evaluates expressions.  Each token (operator, operand,
-   parenthesis) of the expression must be a separate argument.  The
+   parenthesis) of the expression must be a seperate argument.  The
    parser used is a reasonably general one, though any incarnation of
    it is language-specific.  It is especially nice for expressions.
 
@@ -36,12 +36,15 @@
 #include <regex.h>
 #include "error.h"
 #include "long-options.h"
+#include "quotearg.h"
 #include "strnumcmp.h"
 #include "xstrtol.h"
 
 /* Various parts of this code assume size_t fits into unsigned long
    int, the widest unsigned type that GMP supports.  */
 verify (SIZE_MAX <= ULONG_MAX);
+
+static void integer_overflow (char) ATTRIBUTE_NORETURN;
 
 #ifndef HAVE_GMP
 # define HAVE_GMP 0
@@ -50,7 +53,6 @@ verify (SIZE_MAX <= ULONG_MAX);
 #if HAVE_GMP
 # include <gmp.h>
 #else
-static void integer_overflow (char) ATTRIBUTE_NORETURN;
 /* Approximate gmp.h well enough for expr.c's purposes.  */
 typedef intmax_t mpz_t[1];
 static void mpz_clear (mpz_t z) { (void) z; }
@@ -142,7 +144,7 @@ mpz_out_str (FILE *stream, int base, mpz_t z)
 }
 #endif
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "expr"
 
 #define AUTHORS \
@@ -195,7 +197,8 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("\
@@ -248,7 +251,7 @@ separates increasing precedence groups.  EXPRESSION may be:\n\
 "), stdout);
       fputs (_("\
   + TOKEN                    interpret TOKEN as a string, even if it is a\n\
-                               keyword like 'match' or an operator like '/'\n\
+                               keyword like `match' or an operator like `/'\n\
 \n\
   ( EXPRESSION )             value of EXPRESSION\n\
 "), stdout);
@@ -264,7 +267,7 @@ Pattern matches return the string matched between \\( and \\) or null; if\n\
 Exit status is 0 if EXPRESSION is neither null nor 0, 1 if EXPRESSION is null\n\
 or 0, 2 if EXPRESSION is syntactically invalid, and 3 if an error occurred.\n\
 "), stdout);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
@@ -276,7 +279,6 @@ syntax_error (void)
   error (EXPR_INVALID, 0, _("syntax error"));
 }
 
-#if ! HAVE_GMP
 /* Report an integer overflow for operation OP and exit.  */
 static void
 integer_overflow (char op)
@@ -284,7 +286,15 @@ integer_overflow (char op)
   error (EXPR_FAILURE, ERANGE, "%c", op);
   abort (); /* notreached */
 }
-#endif
+
+static void die (int errno_val, char const *msg)
+  ATTRIBUTE_NORETURN;
+static void
+die (int errno_val, char const *msg)
+{
+  error (EXPR_FAILURE, errno_val, "%s", msg);
+  abort (); /* notreached */
+}
 
 int
 main (int argc, char **argv)
@@ -302,17 +312,15 @@ main (int argc, char **argv)
 
   parse_long_options (argc, argv, PROGRAM_NAME, PACKAGE_NAME, VERSION,
                       usage, AUTHORS, (char const *) NULL);
-
   /* The above handles --help and --version.
-     Since there is no other invocation of getopt, handle '--' here.  */
-  unsigned int u_argc = argc;
-  if (1 < u_argc && STREQ (argv[1], "--"))
+     Since there is no other invocation of getopt, handle `--' here.  */
+  if (argc > 1 && STREQ (argv[1], "--"))
     {
-      --u_argc;
+      --argc;
       ++argv;
     }
 
-  if (u_argc <= 1)
+  if (argc <= 1)
     {
       error (0, 0, _("missing operand"));
       usage (EXPR_INVALID);
@@ -325,7 +333,7 @@ main (int argc, char **argv)
     syntax_error ();
   printv (v);
 
-  return null (v);
+  exit (null (v));
 }
 
 /* Return a VALUE for I.  */
@@ -383,7 +391,7 @@ printv (VALUE *v)
 
 /* Return true if V is a null-string or zero-number.  */
 
-static bool _GL_ATTRIBUTE_PURE
+static bool
 null (VALUE *v)
 {
   switch (v->type)
@@ -414,7 +422,7 @@ null (VALUE *v)
 
 /* Return true if CP takes the form of an integer.  */
 
-static bool _GL_ATTRIBUTE_PURE
+static bool
 looks_like_integer (char const *cp)
 {
   cp += (*cp == '-');
@@ -465,7 +473,7 @@ toarith (VALUE *v)
         if (! looks_like_integer (s))
           return false;
         if (mpz_init_set_str (v->u.i, s, 10) != 0 && !HAVE_GMP)
-          error (EXPR_FAILURE, ERANGE, "%s", (s));
+          error (EXPR_FAILURE, ERANGE, "%s", s);
         free (s);
         v->type = integer;
         return true;
@@ -475,7 +483,7 @@ toarith (VALUE *v)
     }
 }
 
-/* Extract a size_t value from an integer value I.
+/* Extract a size_t value from a integer value I.
    If the value is negative, return SIZE_MAX.
    If the value is too large, return SIZE_MAX - 1.  */
 static size_t
@@ -539,7 +547,7 @@ trace (fxn)
 static VALUE *
 docolon (VALUE *sv, VALUE *pv)
 {
-  VALUE *v IF_LINT ( = NULL);
+  VALUE *v IF_LINT (= NULL);
   const char *errmsg;
   struct re_pattern_buffer re_buffer;
   char fastmap[UCHAR_MAX + 1];
@@ -561,7 +569,7 @@ docolon (VALUE *sv, VALUE *pv)
     RE_SYNTAX_POSIX_BASIC & ~RE_CONTEXT_INVALID_DUP & ~RE_NO_EMPTY_RANGES;
   errmsg = re_compile_pattern (pv->u.s, strlen (pv->u.s), &re_buffer);
   if (errmsg)
-    error (EXPR_INVALID, 0, "%s", (errmsg));
+    error (EXPR_INVALID, 0, "%s", errmsg);
   re_buffer.newline_anchor = 0;
 
   matchlen = re_match (&re_buffer, sv->u.s, strlen (sv->u.s), 0, &re_regs);
@@ -779,7 +787,7 @@ eval4 (bool evaluate)
       if (evaluate)
         {
           if (!toarith (l) || !toarith (r))
-            error (EXPR_INVALID, 0, _("non-integer argument"));
+            error (EXPR_INVALID, 0, _("non-numeric argument"));
           if (fxn != multiply && mpz_sgn (r->u.i) == 0)
             error (EXPR_INVALID, 0, _("division by zero"));
           ((fxn == multiply ? mpz_mul
@@ -816,7 +824,7 @@ eval3 (bool evaluate)
       if (evaluate)
         {
           if (!toarith (l) || !toarith (r))
-            error (EXPR_INVALID, 0, _("non-integer argument"));
+            error (EXPR_INVALID, 0, _("non-numeric argument"));
           (fxn == plus ? mpz_add : mpz_sub) (l->u.i, l->u.i, r->u.i);
         }
       freev (r);

@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Test changing to a directory named by a file descriptor.
-   Copyright (C) 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -20,44 +23,35 @@
 
 #include <unistd.h>
 
-#include "signature.h"
-SIGNATURE_CHECK (fchdir, int, (int));
-
 #include <errno.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "cloexec.h"
-#include "macros.h"
+#define ASSERT(expr) \
+  do									     \
+    {									     \
+      if (!(expr))							     \
+        {								     \
+          fprintf (stderr, "%s:%d: assertion failed\n", __FILE__, __LINE__); \
+          fflush (stderr);						     \
+          abort ();							     \
+        }								     \
+    }									     \
+  while (0)
 
 int
-main (void)
+main ()
 {
-  char *cwd;
-  int fd;
+  char *cwd = getcwd (NULL, 0);
+  int fd = open (".", O_RDONLY);
   int i;
 
-  cwd = getcwd (NULL, 0);
   ASSERT (cwd);
-
-  fd = open (".", O_RDONLY);
   ASSERT (0 <= fd);
 
-  /* Test behaviour for invalid file descriptors.  */
-  {
-    errno = 0;
-    ASSERT (fchdir (-1) == -1);
-    ASSERT (errno == EBADF);
-  }
-  {
-    close (99);
-    errno = 0;
-    ASSERT (fchdir (99) == -1);
-    ASSERT (errno == EBADF);
-  }
-
-  /* Check for other failure cases.  */
+  /* Check for failure cases.  */
   {
     int bad_fd = open ("/dev/null", O_RDONLY);
     ASSERT (0 <= bad_fd);
@@ -65,44 +59,34 @@ main (void)
     ASSERT (fchdir (bad_fd) == -1);
     ASSERT (errno == ENOTDIR);
     ASSERT (close (bad_fd) == 0);
+    errno = 0;
+    ASSERT (fchdir (-1) == -1);
+    ASSERT (errno == EBADF);
   }
 
   /* Repeat test twice, once in '.' and once in '..'.  */
   for (i = 0; i < 2; i++)
     {
-      ASSERT (chdir (&".."[1 - i]) == 0);
+      ASSERT (chdir (".." + 1 - i) == 0);
       ASSERT (fchdir (fd) == 0);
       {
-        size_t len = strlen (cwd) + 1;
-        char *new_dir = malloc (len);
-        ASSERT (new_dir);
-        ASSERT (getcwd (new_dir, len) == new_dir);
-        ASSERT (strcmp (cwd, new_dir) == 0);
-        free (new_dir);
+	size_t len = strlen (cwd) + 1;
+	char *new_dir = malloc (len);
+	ASSERT (new_dir);
+	ASSERT (getcwd (new_dir, len) == new_dir);
+	ASSERT (strcmp (cwd, new_dir) == 0);
+	free (new_dir);
       }
 
       /* For second iteration, use a cloned fd, to ensure that dup
-         remembers whether an fd was associated with a directory.  */
+	 remembers whether an fd was associated with a directory.  */
       if (!i)
-        {
-          int new_fd = dup (fd);
-          ASSERT (0 <= new_fd);
-          ASSERT (close (fd) == 0);
-          ASSERT (dup2 (new_fd, fd) == fd);
-          ASSERT (close (new_fd) == 0);
-          ASSERT (dup_cloexec (fd) == new_fd);
-          ASSERT (dup2 (new_fd, fd) == fd);
-          ASSERT (close (new_fd) == 0);
-          ASSERT (fcntl (fd, F_DUPFD_CLOEXEC, new_fd) == new_fd);
-          ASSERT (close (fd) == 0);
-          ASSERT (fcntl (new_fd, F_DUPFD, fd) == fd);
-          ASSERT (close (new_fd) == 0);
-#if GNULIB_TEST_DUP3
-          ASSERT (dup3 (fd, new_fd, 0) == new_fd);
-          ASSERT (dup3 (new_fd, fd, 0) == fd);
-          ASSERT (close (new_fd) == 0);
-#endif
-        }
+	{
+	  int new_fd = dup (fd);
+	  ASSERT (0 <= new_fd);
+	  ASSERT (close (fd) == 0);
+	  fd = new_fd;
+	}
     }
 
   free (cwd);

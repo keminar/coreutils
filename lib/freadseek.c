@@ -1,5 +1,5 @@
 /* Skipping input from a FILE stream.
-   Copyright (C) 2007-2016 Free Software Foundation, Inc.
+   Copyright (C) 2007-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -30,25 +30,19 @@
 /* Increment the in-memory pointer.  INCREMENT must be at most the buffer size
    returned by freadptr().
    This is very cheap (no system calls).  */
-static void
+static inline void
 freadptrinc (FILE *fp, size_t increment)
 {
   /* Keep this code in sync with freadptr!  */
-#if HAVE___FREADPTRINC              /* musl libc */
-  __freadptrinc (fp, increment);
-#elif defined _IO_ftrylockfile || __GNU_LIBRARY__ == 1 /* GNU libc, BeOS, Haiku, Linux libc5 */
+#if defined _IO_ftrylockfile || __GNU_LIBRARY__ == 1 /* GNU libc, BeOS, Haiku, Linux libc5 */
   fp->_IO_read_ptr += increment;
-#elif defined __sferror || defined __DragonFly__ || defined __ANDROID__
-  /* FreeBSD, NetBSD, OpenBSD, DragonFly, Mac OS X, Cygwin, Android */
+#elif defined __sferror || defined __DragonFly__ /* FreeBSD, NetBSD, OpenBSD, DragonFly, MacOS X, Cygwin */
   fp_->_p += increment;
   fp_->_r -= increment;
 #elif defined __EMX__               /* emx+gcc */
   fp->_ptr += increment;
   fp->_rcount -= increment;
-#elif defined __minix               /* Minix */
-  fp_->_ptr += increment;
-  fp_->_count -= increment;
-#elif defined _IOERR                /* AIX, HP-UX, IRIX, OSF/1, Solaris, OpenServer, mingw, NonStop Kernel */
+#elif defined _IOERR                /* AIX, HP-UX, IRIX, OSF/1, Solaris, OpenServer, mingw */
   fp_->_ptr += increment;
   fp_->_cnt -= increment;
 #elif defined __UCLIBC__            /* uClibc */
@@ -61,8 +55,6 @@ freadptrinc (FILE *fp, size_t increment)
   fp->_Next += increment;
 #elif defined __MINT__              /* Atari FreeMiNT */
   fp->__bufp += increment;
-#elif defined EPLAN9                /* Plan9 */
-  fp->rp += increment;
 #elif defined SLOW_BUT_NO_HACKS     /* users can define this */
 #else
  #error "Please port gnulib freadseek.c to your platform! Look at the definition of getc, getc_unlocked on your system, then report this to bug-gnulib."
@@ -88,24 +80,24 @@ freadseek (FILE *fp, size_t offset)
       size_t buffered;
 
       if (freadptr (fp, &buffered) != NULL && buffered > 0)
-        {
-          size_t increment = (buffered < offset ? buffered : offset);
+	{
+	  size_t increment = (buffered < offset ? buffered : offset);
 
-          freadptrinc (fp, increment);
-          offset -= increment;
-          if (offset == 0)
-            return 0;
-          total_buffered -= increment;
-          if (total_buffered == 0)
-            break;
-        }
+	  freadptrinc (fp, increment);
+	  offset -= increment;
+	  if (offset == 0)
+	    return 0;
+	  total_buffered -= increment;
+	  if (total_buffered == 0)
+	    break;
+	}
       /* Read one byte.  If we were reading from the ungetc buffer, this
-         switches the stream back to the main buffer.  */
+	 switches the stream back to the main buffer.  */
       if (fgetc (fp) == EOF)
-        goto eof;
+	goto eof;
       offset--;
       if (offset == 0)
-        return 0;
+	return 0;
       total_buffered--;
     }
 
@@ -114,21 +106,21 @@ freadseek (FILE *fp, size_t offset)
   if (fd >= 0 && lseek (fd, 0, SEEK_CUR) >= 0)
     {
       /* FP refers to a regular file.  fseek is most efficient in this case.  */
-      return fseeko (fp, offset, SEEK_CUR);
+      return fseek (fp, offset, SEEK_CUR);
     }
   else
     {
       /* FP is a non-seekable stream, possibly not even referring to a file
-         descriptor.  Read OFFSET bytes explicitly and discard them.  */
+	 descriptor.  Read OFFSET bytes explicitly and discard them.  */
       char buf[4096];
 
       do
-        {
-          size_t count = (sizeof (buf) < offset ? sizeof (buf) : offset);
-          if (fread (buf, 1, count, fp) < count)
-            goto eof;
-          offset -= count;
-        }
+	{
+	  size_t count = (sizeof (buf) < offset ? sizeof (buf) : offset);
+	  if (fread (buf, 1, count, fp) < count)
+	    goto eof;
+	  offset -= count;
+	}
       while (offset > 0);
 
       return 0;

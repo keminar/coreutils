@@ -1,3 +1,3 @@
-#define anytostr imaxtostr
+#define inttostr imaxtostr
 #define inttype intmax_t
-#include "anytostr.c"
+#include "inttostr.c"

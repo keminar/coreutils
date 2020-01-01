@@ -1,6 +1,6 @@
 /* rmdir -- remove directories
 
-   Copyright (C) 1990-2016 Free Software Foundation, Inc.
+   Copyright (C) 90, 91, 1995-2002, 2004-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -30,8 +30,9 @@
 #include "system.h"
 #include "error.h"
 #include "prog-fprintf.h"
+#include "quote.h"
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "rmdir"
 
 #define AUTHORS proper_name ("David MacKenzie")
@@ -55,7 +56,7 @@ enum
 
 static struct option const longopts[] =
 {
-  /* Don't name this '--force' because it's not close enough in meaning
+  /* Don't name this `--force' because it's not close enough in meaning
      to e.g. rm's -f option.  */
   {"ignore-fail-on-non-empty", no_argument, NULL,
    IGNORE_FAIL_ON_NON_EMPTY_OPTION},
@@ -130,7 +131,7 @@ remove_parents (char *dir)
 
       /* Give a diagnostic for each attempted removal if --verbose.  */
       if (verbose)
-        prog_fprintf (stdout, _("removing directory, %s"), quoteaf (dir));
+        prog_fprintf (stdout, _("removing directory, %s"), quote (dir));
 
       ok = (rmdir (dir) == 0);
 
@@ -145,7 +146,7 @@ remove_parents (char *dir)
             {
               /* Barring race conditions, DIR is expected to be a directory.  */
               error (0, errno, _("failed to remove directory %s"),
-                     quoteaf (dir));
+                     quote (dir));
             }
           break;
         }
@@ -157,7 +158,8 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("Usage: %s [OPTION]... DIRECTORY...\n"), program_name);
@@ -169,14 +171,13 @@ Remove the DIRECTORY(ies), if they are empty.\n\
                     is non-empty\n\
 "), stdout);
       fputs (_("\
-  -p, --parents   remove DIRECTORY and its ancestors; e.g., 'rmdir -p a/b/c' is\
-\n\
-                    similar to 'rmdir a/b/c a/b a'\n\
+  -p, --parents   remove DIRECTORY and its ancestors; e.g., `rmdir -p a/b/c' is\n\
+                    similar to `rmdir a/b/c a/b a'\n\
   -v, --verbose   output a diagnostic for every directory processed\n\
 "), stdout);
       fputs (HELP_OPTION_DESCRIPTION, stdout);
       fputs (VERSION_OPTION_DESCRIPTION, stdout);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
@@ -229,7 +230,7 @@ main (int argc, char **argv)
 
       /* Give a diagnostic for each attempted removal if --verbose.  */
       if (verbose)
-        prog_fprintf (stdout, _("removing directory, %s"), quoteaf (dir));
+        prog_fprintf (stdout, _("removing directory, %s"), quote (dir));
 
       if (rmdir (dir) != 0)
         {
@@ -238,7 +239,7 @@ main (int argc, char **argv)
 
           /* Here, the diagnostic is less precise, since we have no idea
              whether DIR is a directory.  */
-          error (0, errno, _("failed to remove %s"), quoteaf (dir));
+          error (0, errno, _("failed to remove %s"), quote (dir));
           ok = false;
         }
       else if (remove_empty_parents)
@@ -247,5 +248,5 @@ main (int argc, char **argv)
         }
     }
 
-  return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+  exit (ok ? EXIT_SUCCESS : EXIT_FAILURE);
 }

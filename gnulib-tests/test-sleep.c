@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Test of sleep() function.
-   Copyright (C) 2007-2016 Free Software Foundation, Inc.
+   Copyright (C) 2007-2008 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -20,39 +23,28 @@
 
 #include <unistd.h>
 
-#include "signature.h"
-SIGNATURE_CHECK (sleep, unsigned int, (unsigned int));
+#include <stdio.h>
+#include <stdlib.h>
 
-#include <signal.h>
-
-#include "macros.h"
-
-#if HAVE_DECL_ALARM
-static void
-handle_alarm (int sig)
-{
-  if (sig != SIGALRM)
-    _exit (1);
-}
-#endif
+#define ASSERT(expr) \
+  do									     \
+    {									     \
+      if (!(expr))							     \
+        {								     \
+          fprintf (stderr, "%s:%d: assertion failed\n", __FILE__, __LINE__); \
+          fflush (stderr);						     \
+          abort ();							     \
+        }								     \
+    }									     \
+  while (0)
 
 int
-main (void)
+main()
 {
   ASSERT (sleep (1) <= 1);
 
   ASSERT (sleep (0) == 0);
 
-#if HAVE_DECL_ALARM
-  {
-    const unsigned int pentecost = 50 * 24 * 60 * 60; /* 50 days.  */
-    unsigned int remaining;
-    signal (SIGALRM, handle_alarm);
-    alarm (1);
-    remaining = sleep (pentecost);
-    ASSERT (pentecost - 10 < remaining && remaining <= pentecost);
-  }
-#endif
-
   return 0;
 }
+

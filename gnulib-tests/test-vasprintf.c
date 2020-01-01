@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* Test of vasprintf() and asprintf() functions.
-   Copyright (C) 2007-2016 Free Software Foundation, Inc.
+   Copyright (C) 2007-2008 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -20,15 +23,21 @@
 
 #include <stdio.h>
 
-#include "signature.h"
-SIGNATURE_CHECK (asprintf, int, (char **, char const *, ...));
-SIGNATURE_CHECK (vasprintf, int, (char **, char const *, va_list));
-
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "macros.h"
+#define ASSERT(expr) \
+  do									     \
+    {									     \
+      if (!(expr))							     \
+        {								     \
+          fprintf (stderr, "%s:%d: assertion failed\n", __FILE__, __LINE__); \
+          fflush (stderr);						     \
+          abort ();							     \
+        }								     \
+    }									     \
+  while (0)
 
 static int
 my_asprintf (char **result, const char *format, ...)
@@ -56,16 +65,6 @@ test_vasprintf ()
       ASSERT (strcmp (result, "12345") == 0);
       free (result);
     }
-
-  for (repeat = 0; repeat <= 8; repeat++)
-    {
-      char *result;
-      int retval = my_asprintf (&result, "%08lx", 12345UL);
-      ASSERT (retval == 8);
-      ASSERT (result != NULL);
-      ASSERT (strcmp (result, "00003039") == 0);
-      free (result);
-    }
 }
 
 static void
@@ -80,16 +79,6 @@ test_asprintf ()
       ASSERT (retval == 5);
       ASSERT (result != NULL);
       ASSERT (strcmp (result, "12345") == 0);
-      free (result);
-    }
-
-  for (repeat = 0; repeat <= 8; repeat++)
-    {
-      char *result;
-      int retval = asprintf (&result, "%08lx", 12345UL);
-      ASSERT (retval == 8);
-      ASSERT (result != NULL);
-      ASSERT (strcmp (result, "00003039") == 0);
       free (result);
     }
 }

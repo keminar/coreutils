@@ -1,5 +1,8 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /*
- * Copyright (C) 2008-2016 Free Software Foundation, Inc.
+ * Copyright (C) 2008-2009 Free Software Foundation
  * Written by Eric Blake
  *
  * This program is free software: you can redistribute it and/or modify
@@ -19,18 +22,30 @@
 
 #include "memchr2.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "zerosize-ptr.h"
-#include "macros.h"
+
+#define ASSERT(expr) \
+  do									     \
+    {									     \
+      if (!(expr))							     \
+	{								     \
+	  fprintf (stderr, "%s:%d: assertion failed\n", __FILE__, __LINE__); \
+	  fflush (stderr);						     \
+	  abort ();							     \
+	}								     \
+    }									     \
+  while (0)
 
 /* Calculating void * + int is not portable, so this wrapper converts
    to char * to make the tests easier to write.  */
 #define MEMCHR2 (char *) memchr2
 
 int
-main (void)
+main ()
 {
   size_t n = 0x100000;
   char *input = malloc (n);
@@ -72,10 +87,10 @@ main (void)
     size_t repeat = 10000;
     for (; repeat > 0; repeat--)
       {
-        ASSERT (MEMCHR2 (input, 'c', 'e', n) == input + 2);
-        ASSERT (MEMCHR2 (input, 'e', 'c', n) == input + 2);
-        ASSERT (MEMCHR2 (input, 'c', '\0', n) == input + 2);
-        ASSERT (MEMCHR2 (input, '\0', 'c', n) == input + 2);
+	ASSERT (MEMCHR2 (input, 'c', 'e', n) == input + 2);
+	ASSERT (MEMCHR2 (input, 'e', 'c', n) == input + 2);
+	ASSERT (MEMCHR2 (input, 'c', '\0', n) == input + 2);
+	ASSERT (MEMCHR2 (input, '\0', 'c', n) == input + 2);
       }
   }
 
@@ -84,13 +99,13 @@ main (void)
     int i, j;
     for (i = 0; i < 32; i++)
       {
-        for (j = 0; j < 256; j++)
-          input[i + j] = j;
-        for (j = 0; j < 256; j++)
-          {
-            ASSERT (MEMCHR2 (input + i, j, 0xff, 256) == input + i + j);
-            ASSERT (MEMCHR2 (input + i, 0xff, j, 256) == input + i + j);
-          }
+	for (j = 0; j < 256; j++)
+	  input[i + j] = j;
+	for (j = 0; j < 256; j++)
+	  {
+	    ASSERT (MEMCHR2 (input + i, j, 0xff, 256) == input + i + j);
+	    ASSERT (MEMCHR2 (input + i, 0xff, j, 256) == input + i + j);
+	  }
       }
   }
 

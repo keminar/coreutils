@@ -1,5 +1,5 @@
 /* chcon -- change security context of files
-   Copyright (C) 2005-2016 Free Software Foundation, Inc.
+   Copyright (C) 2005-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -24,11 +24,12 @@
 #include "error.h"
 #include "ignore-value.h"
 #include "quote.h"
+#include "quotearg.h"
 #include "root-dev-ino.h"
 #include "selinux-at.h"
 #include "xfts.h"
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "chcon"
 
 #define AUTHORS \
@@ -45,7 +46,7 @@ static bool recurse;
 /* Level of verbosity. */
 static bool verbose;
 
-/* Pointer to the device and inode numbers of '/', when --recursive.
+/* Pointer to the device and inode numbers of `/', when --recursive.
    Otherwise NULL.  */
 static struct dev_ino *root_dev_ino;
 
@@ -90,14 +91,14 @@ static struct option const long_options[] =
    setting any portions selected via the global variables, specified_user,
    specified_role, etc.  */
 static int
-compute_context_from_mask (char const *context, context_t *ret)
+compute_context_from_mask (security_context_t context, context_t *ret)
 {
   bool ok = true;
   context_t new_context = context_new (context);
   if (!new_context)
     {
       error (0, errno, _("failed to create security context: %s"),
-             quote (context));
+             quotearg_colon (context));
       return 1;
     }
 
@@ -139,9 +140,9 @@ compute_context_from_mask (char const *context, context_t *ret)
 static int
 change_file_context (int fd, char const *file)
 {
-  char *file_context = NULL;
-  context_t context IF_LINT (= 0);
-  char const * context_string;
+  security_context_t file_context = NULL;
+  context_t context;
+  security_context_t context_string;
   int errors = 0;
 
   if (specified_context == NULL)
@@ -153,7 +154,7 @@ change_file_context (int fd, char const *file)
       if (status < 0 && errno != ENODATA)
         {
           error (0, errno, _("failed to get security context of %s"),
-                 quoteaf (file));
+                 quote (file));
           return 1;
         }
 
@@ -163,39 +164,39 @@ change_file_context (int fd, char const *file)
       if (file_context == NULL)
         {
           error (0, 0, _("can't apply partial context to unlabeled file %s"),
-                 quoteaf (file));
+                 quote (file));
           return 1;
         }
 
       if (compute_context_from_mask (file_context, &context))
         return 1;
-
-      context_string = context_str (context);
     }
   else
     {
-      context_string = specified_context;
+      /* FIXME: this should be done exactly once, in main.  */
+      context = context_new (specified_context);
+      if (!context)
+        abort ();
     }
+
+  context_string = context_str (context);
 
   if (file_context == NULL || ! STREQ (context_string, file_context))
     {
       int fail = (affect_symlink_referent
-                  ?  setfileconat (fd, file, se_const (context_string))
-                  : lsetfileconat (fd, file, se_const (context_string)));
+                  ?  setfileconat (fd, file, context_string)
+                  : lsetfileconat (fd, file, context_string));
 
       if (fail)
         {
           errors = 1;
           error (0, errno, _("failed to change context of %s to %s"),
-                 quoteaf_n (0, file), quote_n (1, context_string));
+                 quote_n (0, file), quote_n (1, context_string));
         }
     }
 
-  if (specified_context == NULL)
-    {
-      context_free (context);
-      freecon (file_context);
-    }
+  context_free (context);
+  freecon (file_context);
 
   return errors;
 }
@@ -225,7 +226,7 @@ process_file (FTS *fts, FTSENT *ent)
               /* Tell fts not to traverse into this hierarchy.  */
               fts_set (fts, ent, FTS_SKIP);
               /* Ensure that we do not process "/" on the second visit.  */
-              ignore_value (fts_read (fts));
+              ignore_ptr (fts_read (fts));
               return false;
             }
           return true;
@@ -251,28 +252,19 @@ process_file (FTS *fts, FTSENT *ent)
           fts_set (fts, ent, FTS_AGAIN);
           return true;
         }
-      error (0, ent->fts_errno, _("cannot access %s"),
-             quoteaf (file_full_name));
+      error (0, ent->fts_errno, _("cannot access %s"), quote (file_full_name));
       ok = false;
       break;
 
     case FTS_ERR:
-      error (0, ent->fts_errno, "%s", quotef (file_full_name));
+      error (0, ent->fts_errno, _("%s"), quote (file_full_name));
       ok = false;
       break;
 
     case FTS_DNR:
       error (0, ent->fts_errno, _("cannot read directory %s"),
-             quoteaf (file_full_name));
+             quote (file_full_name));
       ok = false;
-      break;
-
-    case FTS_DC:		/* directory that causes cycles */
-      if (cycle_warning_required (fts, ent))
-        {
-          emit_cycle_warning (file_full_name);
-          return false;
-        }
       break;
 
     default:
@@ -290,7 +282,7 @@ process_file (FTS *fts, FTSENT *ent)
     {
       if (verbose)
         printf (_("changing security context of %s\n"),
-                quoteaf (file_full_name));
+                quote (file_full_name));
 
       if (change_file_context (fts->fts_cwd_fd, file) != 0)
         ok = false;
@@ -345,7 +337,8 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("\
@@ -355,39 +348,25 @@ Usage: %s [OPTION]... CONTEXT FILE...\n\
 "),
         program_name, program_name, program_name);
       fputs (_("\
-Change the SELinux security context of each FILE to CONTEXT.\n\
+Change the security context of each FILE to CONTEXT.\n\
 With --reference, change the security context of each FILE to that of RFILE.\n\
-"), stdout);
-
-      emit_mandatory_arg_note ();
-
-      fputs (_("\
-      --dereference      affect the referent of each symbolic link (this is\n\
-                         the default), rather than the symbolic link itself\n\
+\n\
   -h, --no-dereference   affect symbolic links instead of any referenced file\n\
+"), stdout);
+      fputs (_("\
+      --reference=RFILE  use RFILE's security context rather than specifying\n\
+                         a CONTEXT value\n\
+  -R, --recursive        operate on files and directories recursively\n\
+  -v, --verbose          output a diagnostic for every file processed\n\
 "), stdout);
       fputs (_("\
   -u, --user=USER        set user USER in the target security context\n\
   -r, --role=ROLE        set role ROLE in the target security context\n\
   -t, --type=TYPE        set type TYPE in the target security context\n\
   -l, --range=RANGE      set range RANGE in the target security context\n\
-"), stdout);
-      fputs (_("\
-      --no-preserve-root  do not treat '/' specially (the default)\n\
-      --preserve-root    fail to operate recursively on '/'\n\
-"), stdout);
-      fputs (_("\
-      --reference=RFILE  use RFILE's security context rather than specifying\n\
-                         a CONTEXT value\n\
-"), stdout);
-      fputs (_("\
-  -R, --recursive        operate on files and directories recursively\n\
-"), stdout);
-      fputs (_("\
-  -v, --verbose          output a diagnostic for every file processed\n\
-"), stdout);
-      fputs (_("\
 \n\
+"), stdout);
+      fputs (_("\
 The following options modify how a hierarchy is traversed when the -R\n\
 option is also specified.  If more than one is specified, only the final\n\
 one takes effect.\n\
@@ -401,7 +380,7 @@ one takes effect.\n\
 "), stdout);
       fputs (HELP_OPTION_DESCRIPTION, stdout);
       fputs (VERSION_OPTION_DESCRIPTION, stdout);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
@@ -409,6 +388,8 @@ one takes effect.\n\
 int
 main (int argc, char **argv)
 {
+  security_context_t ref_context = NULL;
+
   /* Bit flags that control how fts works.  */
   int bit_flags = FTS_PHYSICAL;
 
@@ -538,13 +519,15 @@ main (int argc, char **argv)
       usage (EXIT_FAILURE);
     }
 
+  if (is_selinux_enabled () != 1)
+    error (EXIT_FAILURE, 0,
+           _("%s may be used only on a SELinux kernel"), program_name);
+
   if (reference_file)
     {
-      char *ref_context = NULL;
-
       if (getfilecon (reference_file, &ref_context) < 0)
         error (EXIT_FAILURE, errno, _("failed to get security context of %s"),
-               quoteaf (reference_file));
+               quote (reference_file));
 
       specified_context = ref_context;
     }
@@ -555,16 +538,19 @@ main (int argc, char **argv)
     }
   else
     {
+      context_t context;
       specified_context = argv[optind++];
-      if (security_check_context (se_const (specified_context)) < 0)
-        error (EXIT_FAILURE, errno, _("invalid context: %s"),
-               quote (specified_context));
+      context = context_new (specified_context);
+      if (!context)
+        error (EXIT_FAILURE, 0, _("invalid context: %s"),
+               quotearg_colon (specified_context));
+      context_free (context);
     }
 
   if (reference_file && component_specified)
     {
       error (0, 0, _("conflicting security context specifiers given"));
-      usage (EXIT_FAILURE);
+      usage (1);
     }
 
   if (recurse && preserve_root)
@@ -573,7 +559,7 @@ main (int argc, char **argv)
       root_dev_ino = get_root_dev_ino (&dev_ino_buf);
       if (root_dev_ino == NULL)
         error (EXIT_FAILURE, errno, _("failed to get attributes of %s"),
-               quoteaf ("/"));
+               quote ("/"));
     }
   else
     {
@@ -582,5 +568,5 @@ main (int argc, char **argv)
 
   ok = process_files (argv + optind, bit_flags | FTS_NOSTAT);
 
-  return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+  exit (ok ? EXIT_SUCCESS : EXIT_FAILURE);
 }

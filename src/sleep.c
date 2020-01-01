@@ -1,5 +1,6 @@
 /* sleep - delay for a specified amount of time.
-   Copyright (C) 1984-2016 Free Software Foundation, Inc.
+   Copyright (C) 84, 1991-1997, 1999-2005, 2007-2009
+   Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -27,7 +28,7 @@
 #include "xnanosleep.h"
 #include "xstrtod.h"
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "sleep"
 
 #define AUTHORS \
@@ -38,14 +39,15 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("\
 Usage: %s NUMBER[SUFFIX]...\n\
   or:  %s OPTION\n\
-Pause for NUMBER seconds.  SUFFIX may be 's' for seconds (the default),\n\
-'m' for minutes, 'h' for hours or 'd' for days.  Unlike most implementations\n\
+Pause for NUMBER seconds.  SUFFIX may be `s' for seconds (the default),\n\
+`m' for minutes, `h' for hours or `d' for days.  Unlike most implementations\n\
 that require NUMBER be an integer, here NUMBER may be an arbitrary floating\n\
 point number.  Given two or more arguments, pause for the amount of time\n\
 specified by the sum of their values.\n\
@@ -54,15 +56,15 @@ specified by the sum of their values.\n\
               program_name, program_name);
       fputs (HELP_OPTION_DESCRIPTION, stdout);
       fputs (VERSION_OPTION_DESCRIPTION, stdout);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
 
 /* Given a floating point value *X, and a suffix character, SUFFIX_CHAR,
    scale *X by the multiplier implied by SUFFIX_CHAR.  SUFFIX_CHAR may
-   be the NUL byte or 's' to denote seconds, 'm' for minutes, 'h' for
-   hours, or 'd' for days.  If SUFFIX_CHAR is invalid, don't modify *X
+   be the NUL byte or `s' to denote seconds, `m' for minutes, `h' for
+   hours, or `d' for days.  If SUFFIX_CHAR is invalid, don't modify *X
    and return false.  Otherwise return true.  */
 
 static bool
@@ -145,5 +147,5 @@ main (int argc, char **argv)
   if (xnanosleep (seconds))
     error (EXIT_FAILURE, errno, _("cannot read realtime clock"));
 
-  return EXIT_SUCCESS;
+  exit (EXIT_SUCCESS);
 }

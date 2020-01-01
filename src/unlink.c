@@ -1,5 +1,5 @@
 /* unlink utility for GNU.
-   Copyright (C) 2001-2016 Free Software Foundation, Inc.
+   Copyright (C) 2001, 2002, 2004, 2007-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -30,7 +30,7 @@
 #include "long-options.h"
 #include "quote.h"
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "unlink"
 
 #define AUTHORS proper_name ("Michael Stone")
@@ -39,7 +39,8 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("\
@@ -49,7 +50,7 @@ Usage: %s FILE\n\
              stdout);
       fputs (HELP_OPTION_DESCRIPTION, stdout);
       fputs (VERSION_OPTION_DESCRIPTION, stdout);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
@@ -83,7 +84,7 @@ main (int argc, char **argv)
     }
 
   if (unlink (argv[optind]) != 0)
-    error (EXIT_FAILURE, errno, _("cannot unlink %s"), quoteaf (argv[optind]));
+    error (EXIT_FAILURE, errno, _("cannot unlink %s"), quote (argv[optind]));
 
-  return EXIT_SUCCESS;
+  exit (EXIT_SUCCESS);
 }

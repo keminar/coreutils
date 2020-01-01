@@ -1,5 +1,5 @@
 /* nl -- number lines of files
-   Copyright (C) 1989-2016 Free Software Foundation, Inc.
+   Copyright (C) 89, 92, 1995-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -13,7 +13,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
-
+
 /* Written by Scott Bartram (nancy!scott@uunet.uu.net)
    Revised by David MacKenzie (djm@gnu.ai.mit.edu) */
 
@@ -28,12 +28,11 @@
 #include <regex.h>
 
 #include "error.h"
-#include "fadvise.h"
 #include "linebuffer.h"
 #include "quote.h"
-#include "xdectoint.h"
+#include "xstrtol.h"
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "nl"
 
 #define AUTHORS \
@@ -145,6 +144,11 @@ static intmax_t line_no;
 /* True if we have ever read standard input.  */
 static bool have_read_stdin;
 
+enum
+{
+  PAGE_INCREMENT_OPTION_DEPRECATED = CHAR_MAX + 1
+};
+
 static struct option const longopts[] =
 {
   {"header-numbering", required_argument, NULL, 'h'},
@@ -152,6 +156,8 @@ static struct option const longopts[] =
   {"footer-numbering", required_argument, NULL, 'f'},
   {"starting-line-number", required_argument, NULL, 'v'},
   {"line-increment", required_argument, NULL, 'i'},
+  /* FIXME: page-increment is deprecated, remove in dec-2011.  */
+  {"page-increment", required_argument, NULL, PAGE_INCREMENT_OPTION_DEPRECATED},
   {"no-renumber", no_argument, NULL, 'p'},
   {"join-blank-lines", required_argument, NULL, 'l'},
   {"number-separator", required_argument, NULL, 's'},
@@ -169,7 +175,8 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("\
@@ -178,11 +185,12 @@ Usage: %s [OPTION]... [FILE]...\n\
               program_name);
       fputs (_("\
 Write each FILE to standard output, with line numbers added.\n\
+With no FILE, or when FILE is -, read standard input.\n\
+\n\
 "), stdout);
-
-      emit_stdin_note ();
-      emit_mandatory_arg_note ();
-
+      fputs (_("\
+Mandatory arguments to long options are mandatory for short options too.\n\
+"), stdout);
       fputs (_("\
   -b, --body-numbering=STYLE      use STYLE for numbering body lines\n\
   -d, --section-delimiter=CC      use CC for separating logical pages\n\
@@ -223,13 +231,13 @@ FORMAT is one of:\n\
   rz   right justified, leading zeros\n\
 \n\
 "), stdout);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
 
 /* Set the command line flag TYPEP and possibly the regex pointer REGEXP,
-   according to 'optarg'.  */
+   according to `optarg'.  */
 
 static bool
 build_type_arg (char const **typep,
@@ -255,7 +263,7 @@ build_type_arg (char const **typep,
         RE_SYNTAX_POSIX_BASIC & ~RE_CONTEXT_INVALID_DUP & ~RE_NO_EMPTY_RANGES;
       errmsg = re_compile_pattern (optarg, strlen (optarg), regexp);
       if (errmsg)
-        error (EXIT_FAILURE, 0, "%s", (errmsg));
+        error (EXIT_FAILURE, 0, "%s", errmsg);
       break;
     default:
       rval = false;
@@ -311,7 +319,7 @@ proc_footer (void)
   putchar ('\n');
 }
 
-/* Process a regular text line in 'line_buf'. */
+/* Process a regular text line in `line_buf'. */
 
 static void
 proc_text (void)
@@ -362,7 +370,7 @@ proc_text (void)
   fwrite (line_buf.buffer, sizeof (char), line_buf.length, stdout);
 }
 
-/* Return the type of line in 'line_buf'. */
+/* Return the type of line in `line_buf'. */
 
 static enum section
 check_section (void)
@@ -426,25 +434,23 @@ nl_file (char const *file)
       stream = fopen (file, "r");
       if (stream == NULL)
         {
-          error (0, errno, "%s", quotef (file));
+          error (0, errno, "%s", file);
           return false;
         }
     }
-
-  fadvise (stream, FADVISE_SEQUENTIAL);
 
   process_file (stream);
 
   if (ferror (stream))
     {
-      error (0, errno, "%s", quotef (file));
+      error (0, errno, "%s", file);
       return false;
     }
   if (STREQ (file, "-"))
     clearerr (stream);		/* Also clear EOF. */
   else if (fclose (stream) == EOF)
     {
-      error (0, errno, "%s", quotef (file));
+      error (0, errno, "%s", file);
       return false;
     }
   return true;
@@ -497,27 +503,57 @@ main (int argc, char **argv)
             }
           break;
         case 'v':
-          starting_line_number = xdectoimax (optarg, INTMAX_MIN, INTMAX_MAX, "",
-                                             _("invalid starting line number"),
-                                             0);
+          if (xstrtoimax (optarg, NULL, 10, &starting_line_number, "")
+              != LONGINT_OK)
+            {
+              error (0, 0, _("invalid starting line number: %s"),
+                     quote (optarg));
+              ok = false;
+            }
           break;
+  case PAGE_INCREMENT_OPTION_DEPRECATED:
+    error (0, 0, _("WARNING: --page-increment is deprecated; "
+                   "use --line-increment instead"));
+    /* fall through */
         case 'i':
-          page_incr = xdectoimax (optarg, 1, INTMAX_MAX, "",
-                                  _("invalid line number increment"), 0);
+          if (! (xstrtoimax (optarg, NULL, 10, &page_incr, "") == LONGINT_OK
+                 && 0 < page_incr))
+            {
+              error (0, 0, _("invalid line number increment: %s"),
+                     quote (optarg));
+              ok = false;
+            }
           break;
         case 'p':
           reset_numbers = false;
           break;
         case 'l':
-          blank_join = xdectoimax (optarg, 1, INTMAX_MAX, "",
-                                   _("invalid line number of blank lines"), 0);
+          if (! (xstrtoimax (optarg, NULL, 10, &blank_join, "") == LONGINT_OK
+                 && 0 < blank_join))
+            {
+              error (0, 0, _("invalid number of blank lines: %s"),
+                     quote (optarg));
+              ok = false;
+            }
           break;
         case 's':
           separator_str = optarg;
           break;
         case 'w':
-          lineno_width = xdectoimax (optarg, 1, INT_MAX, "",
-                                     _("invalid line number field width"), 0);
+          {
+            long int tmp_long;
+            if (xstrtol (optarg, NULL, 10, &tmp_long, "") != LONGINT_OK
+                || tmp_long <= 0 || tmp_long > INT_MAX)
+              {
+                error (0, 0, _("invalid line number field width: %s"),
+                       quote (optarg));
+                ok = false;
+              }
+            else
+              {
+                lineno_width = tmp_long;
+              }
+          }
           break;
         case 'n':
           if (STREQ (optarg, "ln"))
@@ -586,5 +622,5 @@ main (int argc, char **argv)
   if (have_read_stdin && fclose (stdin) == EOF)
     error (EXIT_FAILURE, errno, "-");
 
-  return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+  exit (ok ? EXIT_SUCCESS : EXIT_FAILURE);
 }

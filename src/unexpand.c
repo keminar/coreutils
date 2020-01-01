@@ -1,5 +1,5 @@
 /* unexpand - convert blanks to tabs
-   Copyright (C) 1989-2016 Free Software Foundation, Inc.
+   Copyright (C) 89, 91, 1995-2006, 2008-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -40,11 +40,10 @@
 #include <sys/types.h>
 #include "system.h"
 #include "error.h"
-#include "fadvise.h"
 #include "quote.h"
 #include "xstrndup.h"
 
-/* The official name of this program (e.g., no 'g' prefix).  */
+/* The official name of this program (e.g., no `g' prefix).  */
 #define PROGRAM_NAME "unexpand"
 
 #define AUTHORS proper_name ("David MacKenzie")
@@ -53,28 +52,28 @@
    read on the line.  */
 static bool convert_entire_line;
 
-/* If nonzero, the size of all tab stops.  If zero, use 'tab_list' instead.  */
+/* If nonzero, the size of all tab stops.  If zero, use `tab_list' instead.  */
 static size_t tab_size;
 
 /* The maximum distance between tab stops.  */
 static size_t max_column_width;
 
 /* Array of the explicit column numbers of the tab stops;
-   after 'tab_list' is exhausted, the rest of the line is printed
+   after `tab_list' is exhausted, the rest of the line is printed
    unchanged.  The first column is column 0.  */
 static uintmax_t *tab_list;
 
-/* The number of allocated entries in 'tab_list'.  */
+/* The number of allocated entries in `tab_list'.  */
 static size_t n_tabs_allocated;
 
-/* The index of the first invalid element of 'tab_list',
+/* The index of the first invalid element of `tab_list',
    where the next element can be added.  */
 static size_t first_free_tab;
 
 /* Null-terminated array of input filenames.  */
 static char **file_list;
 
-/* Default for 'file_list' if no files are given on the command line.  */
+/* Default for `file_list' if no files are given on the command line.  */
 static char *stdin_argv[] =
 {
   (char *) "-", NULL
@@ -107,7 +106,8 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("\
@@ -116,11 +116,12 @@ Usage: %s [OPTION]... [FILE]...\n\
               program_name);
       fputs (_("\
 Convert blanks in each FILE to tabs, writing to standard output.\n\
+With no FILE, or when FILE is -, read standard input.\n\
+\n\
 "), stdout);
-
-      emit_stdin_note ();
-      emit_mandatory_arg_note ();
-
+      fputs (_("\
+Mandatory arguments to long options are mandatory for short options too.\n\
+"), stdout);
       fputs (_("\
   -a, --all        convert all blanks, instead of just initial blanks\n\
       --first-only  convert only leading sequences of blanks (overrides -a)\n\
@@ -129,12 +130,12 @@ Convert blanks in each FILE to tabs, writing to standard output.\n\
 "), stdout);
       fputs (HELP_OPTION_DESCRIPTION, stdout);
       fputs (VERSION_OPTION_DESCRIPTION, stdout);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
 
-/* Add tab stop TABVAL to the end of 'tab_list'.  */
+/* Add tab stop TABVAL to the end of `tab_list'.  */
 
 static void
 add_tab_stop (uintmax_t tabval)
@@ -161,8 +162,8 @@ static void
 parse_tab_stops (char const *stops)
 {
   bool have_tabval = false;
-  uintmax_t tabval IF_LINT ( = 0);
-  char const *num_start IF_LINT ( = NULL);
+  uintmax_t tabval IF_LINT (= 0);
+  char const *num_start IF_LINT (= NULL);
   bool ok = true;
 
   for (; *stops; stops++)
@@ -230,7 +231,7 @@ validate_tab_stops (uintmax_t const *tabs, size_t entries)
 
 /* Close the old stream pointer FP if it is non-NULL,
    and return a new one opened to read the next input file.
-   Open a filename of '-' as the standard input.
+   Open a filename of `-' as the standard input.
    Return NULL if there are no more input files.  */
 
 static FILE *
@@ -243,14 +244,14 @@ next_file (FILE *fp)
     {
       if (ferror (fp))
         {
-          error (0, errno, "%s", quotef (prev_file));
+          error (0, errno, "%s", prev_file);
           exit_status = EXIT_FAILURE;
         }
       if (STREQ (prev_file, "-"))
         clearerr (fp);		/* Also clear EOF.  */
       else if (fclose (fp) != 0)
         {
-          error (0, errno, "%s", quotef (prev_file));
+          error (0, errno, "%s", prev_file);
           exit_status = EXIT_FAILURE;
         }
     }
@@ -260,24 +261,23 @@ next_file (FILE *fp)
       if (STREQ (file, "-"))
         {
           have_read_stdin = true;
-          fp = stdin;
+          prev_file = file;
+          return stdin;
         }
-      else
-        fp = fopen (file, "r");
+      fp = fopen (file, "r");
       if (fp)
         {
           prev_file = file;
-          fadvise (fp, FADVISE_SEQUENTIAL);
           return fp;
         }
-      error (0, errno, "%s", quotef (file));
+      error (0, errno, "%s", file);
       exit_status = EXIT_FAILURE;
     }
   return NULL;
 }
 
 /* Change blanks to tabs, writing to stdout.
-   Read each file in 'file_list', in order.  */
+   Read each file in `file_list', in order.  */
 
 static void
 unexpand (void)
@@ -298,7 +298,7 @@ unexpand (void)
      allocate MAX_COLUMN_WIDTH bytes to store the blanks.  */
   pending_blank = xmalloc (max_column_width);
 
-  while (true)
+  for (;;)
     {
       /* Input character, or EOF.  */
       int c;
@@ -350,7 +350,7 @@ unexpand (void)
                         next_tab_column =
                           column + (tab_size - column % tab_size);
                       else
-                        while (true)
+                        for (;;)
                           if (tab_index == first_free_tab)
                             {
                               convert = false;
@@ -376,8 +376,13 @@ unexpand (void)
                         {
                           column = next_tab_column;
 
-                          if (pending)
-                            pending_blank[0] = '\t';
+                          /* Discard pending blanks, unless it was a single
+                             blank just before the previous tab stop.  */
+                          if (! (pending == 1 && one_blank_before_tab_stop))
+                            {
+                              pending = 0;
+                              one_blank_before_tab_stop = false;
+                            }
                         }
                       else
                         {
@@ -396,11 +401,8 @@ unexpand (void)
 
                           /* Replace the pending blanks by a tab or two.  */
                           pending_blank[0] = c = '\t';
+                          pending = one_blank_before_tab_stop;
                         }
-
-                      /* Discard pending blanks, unless it was a single
-                         blank just before the previous tab stop.  */
-                      pending = one_blank_before_tab_stop;
                     }
                 }
               else if (c == '\b')
@@ -420,8 +422,6 @@ unexpand (void)
 
               if (pending)
                 {
-                  if (pending > 1 && one_blank_before_tab_stop)
-                    pending_blank[0] = '\t';
                   if (fwrite (pending_blank, 1, pending, stdout) != pending)
                     error (EXIT_FAILURE, errno, _("write error"));
                   pending = 0;
@@ -449,7 +449,7 @@ int
 main (int argc, char **argv)
 {
   bool have_tabval = false;
-  uintmax_t tabval IF_LINT ( = 0);
+  uintmax_t tabval IF_LINT (= 0);
   int c;
 
   /* If true, cancel the effect of any -a (explicit or implicit in -t),
@@ -528,5 +528,5 @@ main (int argc, char **argv)
   if (have_read_stdin && fclose (stdin) != 0)
     error (EXIT_FAILURE, errno, "-");
 
-  return exit_status;
+  exit (exit_status);
 }

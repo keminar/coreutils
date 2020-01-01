@@ -1,5 +1,5 @@
 /* stat.c -- display file or file system status
-   Copyright (C) 2001-2016 Free Software Foundation, Inc.
+   Copyright (C) 2001-2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -20,7 +20,7 @@
 
 /* Keep this conditional in sync with the similar conditional in
    ../m4/stat-prog.m4.  */
-#if ((STAT_STATVFS || STAT_STATVFS64)                                       \
+#if (STAT_STATVFS \
      && (HAVE_STRUCT_STATVFS_F_BASETYPE || HAVE_STRUCT_STATVFS_F_FSTYPENAME \
          || (! HAVE_STRUCT_STATFS_F_FSTYPENAME && HAVE_STRUCT_STATVFS_F_TYPE)))
 # define USE_STATVFS 1
@@ -30,7 +30,6 @@
 
 #include <stddef.h>
 #include <stdio.h>
-#include <stdalign.h>
 #include <sys/types.h>
 #include <pwd.h>
 #include <grp.h>
@@ -45,7 +44,7 @@
 /* NetBSD 1.5.2 needs these, for the declaration of struct statfs. */
 # include <sys/param.h>
 # include <sys/mount.h>
-# if HAVE_NFS_NFS_CLNT_H && HAVE_NFS_VFS_H
+# if HAVE_NETINET_IN_H && HAVE_NFS_NFS_CLNT_H && HAVE_NFS_VFS_H
 /* Ultrix 4.4 needs these for the declaration of struct statfs.  */
 #  include <netinet/in.h>
 #  include <nfs/nfs_clnt.h>
@@ -58,33 +57,27 @@
 
 #include "system.h"
 
-#include "areadlink.h"
 #include "error.h"
-#include "file-type.h"
 #include "filemode.h"
+#include "file-type.h"
 #include "fs.h"
 #include "getopt.h"
-#include "mountlist.h"
 #include "quote.h"
-#include "stat-size.h"
+#include "quotearg.h"
 #include "stat-time.h"
 #include "strftime.h"
-#include "find-mount-point.h"
-#include "xvasprintf.h"
+#include "areadlink.h"
+
+#define alignof(type) offsetof (struct { char c; type x; }, x)
 
 #if USE_STATVFS
+# define STRUCT_STATVFS struct statvfs
 # define STRUCT_STATXFS_F_FSID_IS_INTEGER STRUCT_STATVFS_F_FSID_IS_INTEGER
 # define HAVE_STRUCT_STATXFS_F_TYPE HAVE_STRUCT_STATVFS_F_TYPE
 # if HAVE_STRUCT_STATVFS_F_NAMEMAX
 #  define SB_F_NAMEMAX(S) ((S)->f_namemax)
 # endif
-# if ! STAT_STATVFS && STAT_STATVFS64
-#  define STRUCT_STATVFS struct statvfs64
-#  define STATFS statvfs64
-# else
-#  define STRUCT_STATVFS struct statvfs
-#  define STATFS statvfs
-# endif
+# define STATFS statvfs
 # define STATFS_FRSIZE(S) ((S)->f_frsize)
 #else
 # define HAVE_STRUCT_STATXFS_F_TYPE HAVE_STRUCT_STATFS_F_TYPE
@@ -96,7 +89,7 @@
 /* BeOS has a statvfs function, but it does not return sensible values
    for f_files, f_ffree and f_favail, and lacks f_type, f_basetype and
    f_fstypename.  Use 'struct fs_info' instead.  */
-static int ATTRIBUTE_WARN_UNUSED_RESULT
+static int
 statfs (char const *filename, struct fs_info *buf)
 {
   dev_t device = dev_for_path (filename);
@@ -126,11 +119,7 @@ statfs (char const *filename, struct fs_info *buf)
 # else
 #  define STRUCT_STATVFS struct statfs
 #  define STRUCT_STATXFS_F_FSID_IS_INTEGER STRUCT_STATFS_F_FSID_IS_INTEGER
-#  if HAVE_STRUCT_STATFS_F_FRSIZE
-#   define STATFS_FRSIZE(S) ((S)->f_frsize)
-#  else
-#   define STATFS_FRSIZE(S) 0
-#  endif
+#  define STATFS_FRSIZE(S) 0
 # endif
 #endif
 
@@ -152,26 +141,11 @@ statfs (char const *filename, struct fs_info *buf)
 # endif
 #endif
 
-#if HAVE_GETATTRAT
-# include <attr.h>
-# include <sys/nvpair.h>
-#endif
-
 /* FIXME: these are used by printf.c, too */
 #define isodigit(c) ('0' <= (c) && (c) <= '7')
 #define octtobin(c) ((c) - '0')
 #define hextobin(c) ((c) >= 'a' && (c) <= 'f' ? (c) - 'a' + 10 : \
                      (c) >= 'A' && (c) <= 'F' ? (c) - 'A' + 10 : (c) - '0')
-
-static char const digits[] = "0123456789";
-
-/* Flags that are portable for use in printf, for at least one
-   conversion specifier; make_format removes unportable flags as
-   needed for particular specifiers.  The glibc 2.2 extension "I" is
-   listed here; it is removed by make_format because it has undefined
-   behavior elsewhere and because it is incompatible with
-   out_epoch_sec.  */
-static char const printf_flags[] = "'-+ #0I";
 
 #define PROGRAM_NAME "stat"
 
@@ -184,6 +158,7 @@ enum
 
 static struct option const long_options[] =
 {
+  {"context", no_argument, 0, 'Z'},
   {"dereference", no_argument, NULL, 'L'},
   {"file-system", no_argument, NULL, 'f'},
   {"format", required_argument, NULL, 'c'},
@@ -205,17 +180,13 @@ static bool interpret_backslash_escapes;
    "" for --printf=FMT, "\n" for --format=FMT (-c).  */
 static char const *trailing_delim = "";
 
-/* The representation of the decimal point in the current locale.  */
-static char const *decimal_point;
-static size_t decimal_point_len;
-
 /* Return the type of the specified file system.
    Some systems have statfvs.f_basetype[FSTYPSZ] (AIX, HP-UX, and Solaris).
    Others have statvfs.f_fstypename[_VFS_NAMELEN] (NetBSD 3.0).
    Others have statfs.f_fstypename[MFSNAMELEN] (NetBSD 1.5.2).
    Still others have neither and have to get by with f_type (GNU/Linux).
    But f_type may only exist in statfs (Cygwin).  */
-static char const * ATTRIBUTE_WARN_UNUSED_RESULT
+static char const *
 human_fstype (STRUCT_STATVFS const *statfsbuf)
 {
 #ifdef STATXFS_FILE_SYSTEM_TYPE_MEMBER_NAME
@@ -237,245 +208,123 @@ human_fstype (STRUCT_STATVFS const *statfsbuf)
          diff -u sym_stat sym_libc
       */
 
-      /* Also compare with the list in "man 2 statfs" using the
-         fs-magic-compare make target.  */
+      /* Also sync from the list in "man 2 statfs".  */
 
-      /* IMPORTANT NOTE: Each of the following 'case S_MAGIC_...:'
+      /* IMPORTANT NOTE: Each of the following `case S_MAGIC_...:'
          statements must be followed by a hexadecimal constant in
          a comment.  The S_MAGIC_... name and constant are automatically
          combined to produce the #define directives in fs.h.  */
 
-    case S_MAGIC_ACFS: /* 0x61636673 remote */
-      return "acfs";
-    case S_MAGIC_ADFS: /* 0xADF5 local */
+    case S_MAGIC_ADFS: /* 0xADF5 */
       return "adfs";
-    case S_MAGIC_AFFS: /* 0xADFF local */
+    case S_MAGIC_AFFS: /* 0xADFF */
       return "affs";
-    case S_MAGIC_AFS: /* 0x5346414F remote */
-      return "afs";
-    case S_MAGIC_ANON_INODE_FS: /* 0x09041934 local */
-      return "anon-inode FS";
-    case S_MAGIC_AUFS: /* 0x61756673 remote */
-      /* FIXME: change syntax or add an optional attribute like "inotify:no".
-         The above is labeled as "remote" so that tail always uses polling,
-         but this isn't really a remote file system type.  */
-      return "aufs";
-    case S_MAGIC_AUTOFS: /* 0x0187 local */
+    case S_MAGIC_AUTOFS: /* 0x187 */
       return "autofs";
-    case S_MAGIC_BEFS: /* 0x42465331 local */
+    case S_MAGIC_BEFS: /* 0x42465331 */
       return "befs";
-    case S_MAGIC_BDEVFS: /* 0x62646576 local */
-      return "bdevfs";
-    case S_MAGIC_BFS: /* 0x1BADFACE local */
+    case S_MAGIC_BFS: /* 0x1BADFACE */
       return "bfs";
-    case S_MAGIC_BPF_FS: /* 0xCAFE4A11 local */
-      return "bpf_fs";
-    case S_MAGIC_BINFMTFS: /* 0x42494E4D local */
+    case S_MAGIC_BINFMT_MISC: /* 0x42494e4d */
       return "binfmt_misc";
-    case S_MAGIC_BTRFS: /* 0x9123683E local */
-      return "btrfs";
-    case S_MAGIC_BTRFS_TEST: /* 0x73727279 local */
-      return "btrfs_test";
-    case S_MAGIC_CEPH: /* 0x00C36400 remote */
-      return "ceph";
-    case S_MAGIC_CGROUP: /* 0x0027E0EB local */
-      return "cgroupfs";
-    case S_MAGIC_CIFS: /* 0xFF534D42 remote */
-      return "cifs";
-    case S_MAGIC_CODA: /* 0x73757245 remote */
+    case S_MAGIC_CODA: /* 0x73757245 */
       return "coda";
-    case S_MAGIC_COH: /* 0x012FF7B7 local */
+    case S_MAGIC_COH: /* 0x012FF7B7 */
       return "coh";
-    case S_MAGIC_CONFIGFS: /* 0x62656570 local */
-      return "configfs";
-    case S_MAGIC_CRAMFS: /* 0x28CD3D45 local */
+    case S_MAGIC_CRAMFS: /* 0x28CD3D45 */
       return "cramfs";
-    case S_MAGIC_CRAMFS_WEND: /* 0x453DCD28 local */
-      return "cramfs-wend";
-    case S_MAGIC_DEBUGFS: /* 0x64626720 local */
-      return "debugfs";
-    case S_MAGIC_DEVFS: /* 0x1373 local */
+    case S_MAGIC_DEVFS: /* 0x1373 */
       return "devfs";
-    case S_MAGIC_DEVPTS: /* 0x1CD1 local */
+    case S_MAGIC_DEVPTS: /* 0x1CD1 */
       return "devpts";
-    case S_MAGIC_ECRYPTFS: /* 0xF15F local */
-      return "ecryptfs";
-    case S_MAGIC_EFIVARFS: /* 0xDE5E81E4 local */
-      return "efivarfs";
-    case S_MAGIC_EFS: /* 0x00414A53 local */
+    case S_MAGIC_EFS: /* 0x414A53 */
       return "efs";
-    case S_MAGIC_EXOFS: /* 0x5DF5 local */
-      return "exofs";
-    case S_MAGIC_EXT: /* 0x137D local */
+    case S_MAGIC_EXT: /* 0x137D */
       return "ext";
-    case S_MAGIC_EXT2: /* 0xEF53 local */
+    case S_MAGIC_EXT2: /* 0xEF53 */
       return "ext2/ext3";
-    case S_MAGIC_EXT2_OLD: /* 0xEF51 local */
+    case S_MAGIC_EXT2_OLD: /* 0xEF51 */
       return "ext2";
-    case S_MAGIC_F2FS: /* 0xF2F52010 local */
-      return "f2fs";
-    case S_MAGIC_FAT: /* 0x4006 local */
+    case S_MAGIC_FAT: /* 0x4006 */
       return "fat";
-    case S_MAGIC_FHGFS: /* 0x19830326 remote */
-      return "fhgfs";
-    case S_MAGIC_FUSEBLK: /* 0x65735546 remote */
-      return "fuseblk";
-    case S_MAGIC_FUSECTL: /* 0x65735543 remote */
+    case S_MAGIC_FUSECTL: /* 0x65735543 */
       return "fusectl";
-    case S_MAGIC_FUTEXFS: /* 0x0BAD1DEA local */
-      return "futexfs";
-    case S_MAGIC_GFS: /* 0x01161970 remote */
-      return "gfs/gfs2";
-    case S_MAGIC_GPFS: /* 0x47504653 remote */
-      return "gpfs";
-    case S_MAGIC_HFS: /* 0x4244 local */
-      return "hfs";
-    case S_MAGIC_HFS_PLUS: /* 0x482B local */
-      return "hfs+";
-    case S_MAGIC_HFS_X: /* 0x4858 local */
-      return "hfsx";
-    case S_MAGIC_HOSTFS: /* 0x00C0FFEE local */
-      return "hostfs";
-    case S_MAGIC_HPFS: /* 0xF995E849 local */
+    case S_MAGIC_HPFS: /* 0xF995E849 */
       return "hpfs";
-    case S_MAGIC_HUGETLBFS: /* 0x958458F6 local */
+    case S_MAGIC_HUGETLBFS: /* 0x958458f6 */
       return "hugetlbfs";
-    case S_MAGIC_MTD_INODE_FS: /* 0x11307854 local */
-      return "inodefs";
-    case S_MAGIC_IBRIX: /* 0x013111A8 remote */
-      return "ibrix";
-    case S_MAGIC_INOTIFYFS: /* 0x2BAD1DEA local */
-      return "inotifyfs";
-    case S_MAGIC_ISOFS: /* 0x9660 local */
+    case S_MAGIC_ISOFS: /* 0x9660 */
       return "isofs";
-    case S_MAGIC_ISOFS_R_WIN: /* 0x4004 local */
+    case S_MAGIC_ISOFS_R_WIN: /* 0x4004 */
       return "isofs";
-    case S_MAGIC_ISOFS_WIN: /* 0x4000 local */
+    case S_MAGIC_ISOFS_WIN: /* 0x4000 */
       return "isofs";
-    case S_MAGIC_JFFS: /* 0x07C0 local */
-      return "jffs";
-    case S_MAGIC_JFFS2: /* 0x72B6 local */
+    case S_MAGIC_JFFS2: /* 0x72B6 */
       return "jffs2";
-    case S_MAGIC_JFS: /* 0x3153464A local */
+    case S_MAGIC_JFFS: /* 0x07C0 */
+      return "jffs";
+    case S_MAGIC_JFS: /* 0x3153464A */
       return "jfs";
-    case S_MAGIC_KAFS: /* 0x6B414653 remote */
-      return "k-afs";
-    case S_MAGIC_LOGFS: /* 0xC97E8168 local */
-      return "logfs";
-    case S_MAGIC_LUSTRE: /* 0x0BD00BD0 remote */
+    case S_MAGIC_LUSTRE: /* 0x0BD00BD0 */
       return "lustre";
-    case S_MAGIC_MINIX: /* 0x137F local */
+    case S_MAGIC_MINIX: /* 0x137F */
       return "minix";
-    case S_MAGIC_MINIX_30: /* 0x138F local */
+    case S_MAGIC_MINIX_30: /* 0x138F */
       return "minix (30 char.)";
-    case S_MAGIC_MINIX_V2: /* 0x2468 local */
+    case S_MAGIC_MINIX_V2: /* 0x2468 */
       return "minix v2";
-    case S_MAGIC_MINIX_V2_30: /* 0x2478 local */
+    case S_MAGIC_MINIX_V2_30: /* 0x2478 */
       return "minix v2 (30 char.)";
-    case S_MAGIC_MINIX_V3: /* 0x4D5A local */
-      return "minix3";
-    case S_MAGIC_MQUEUE: /* 0x19800202 local */
-      return "mqueue";
-    case S_MAGIC_MSDOS: /* 0x4D44 local */
+    case S_MAGIC_MSDOS: /* 0x4D44 */
       return "msdos";
-    case S_MAGIC_NCP: /* 0x564C remote */
+    case S_MAGIC_NCP: /* 0x564C */
       return "novell";
-    case S_MAGIC_NFS: /* 0x6969 remote */
+    case S_MAGIC_NFS: /* 0x6969 */
       return "nfs";
-    case S_MAGIC_NFSD: /* 0x6E667364 remote */
+    case S_MAGIC_NFSD: /* 0x6E667364 */
       return "nfsd";
-    case S_MAGIC_NILFS: /* 0x3434 local */
-      return "nilfs";
-    case S_MAGIC_NSFS: /* 0x6E736673 local */
-      return "nsfs";
-    case S_MAGIC_NTFS: /* 0x5346544E local */
+    case S_MAGIC_NTFS: /* 0x5346544E */
       return "ntfs";
-    case S_MAGIC_OPENPROM: /* 0x9FA1 local */
+    case S_MAGIC_OPENPROM: /* 0x9fa1 */
       return "openprom";
-    case S_MAGIC_OCFS2: /* 0x7461636F remote */
-      return "ocfs2";
-    case S_MAGIC_OVERLAYFS: /* 0x794C7630 remote */
-      /* This may overlay remote file systems.
-         Also there have been issues reported with inotify and overlayfs,
-         so mark as "remote" so that polling is used.  */
-      return "overlayfs";
-    case S_MAGIC_PANFS: /* 0xAAD7AAEA remote */
-      return "panfs";
-    case S_MAGIC_PIPEFS: /* 0x50495045 remote */
-      /* FIXME: change syntax or add an optional attribute like "inotify:no".
-         The above is labeled as "remote" so that tail always uses polling,
-         but this isn't really a remote file system type.  */
-      return "pipefs";
-    case S_MAGIC_PROC: /* 0x9FA0 local */
+    case S_MAGIC_PROC: /* 0x9FA0 */
       return "proc";
-    case S_MAGIC_PSTOREFS: /* 0x6165676C local */
-      return "pstorefs";
-    case S_MAGIC_QNX4: /* 0x002F local */
+    case S_MAGIC_QNX4: /* 0x002F */
       return "qnx4";
-    case S_MAGIC_QNX6: /* 0x68191122 local */
-      return "qnx6";
-    case S_MAGIC_RAMFS: /* 0x858458F6 local */
+    case S_MAGIC_RAMFS: /* 0x858458F6 */
       return "ramfs";
-    case S_MAGIC_REISERFS: /* 0x52654973 local */
+    case S_MAGIC_REISERFS: /* 0x52654973 */
       return "reiserfs";
-    case S_MAGIC_ROMFS: /* 0x7275 local */
+    case S_MAGIC_ROMFS: /* 0x7275 */
       return "romfs";
-    case S_MAGIC_RPC_PIPEFS: /* 0x67596969 local */
-      return "rpc_pipefs";
-    case S_MAGIC_SECURITYFS: /* 0x73636673 local */
-      return "securityfs";
-    case S_MAGIC_SELINUX: /* 0xF97CFF8C local */
-      return "selinux";
-    case S_MAGIC_SMACK: /* 0x43415D53 local */
-      return "smackfs";
-    case S_MAGIC_SMB: /* 0x517B remote */
+    case S_MAGIC_SMB: /* 0x517B */
       return "smb";
-    case S_MAGIC_SNFS: /* 0xBEEFDEAD remote */
-      return "snfs";
-    case S_MAGIC_SOCKFS: /* 0x534F434B local */
-      return "sockfs";
-    case S_MAGIC_SQUASHFS: /* 0x73717368 local */
+    case S_MAGIC_SQUASHFS: /* 0x73717368 */
       return "squashfs";
-    case S_MAGIC_SYSFS: /* 0x62656572 local */
+    case S_MAGIC_SYSFS: /* 0x62656572 */
       return "sysfs";
-    case S_MAGIC_SYSV2: /* 0x012FF7B6 local */
+    case S_MAGIC_SYSV2: /* 0x012FF7B6 */
       return "sysv2";
-    case S_MAGIC_SYSV4: /* 0x012FF7B5 local */
+    case S_MAGIC_SYSV4: /* 0x012FF7B5 */
       return "sysv4";
-    case S_MAGIC_TMPFS: /* 0x01021994 local */
+    case S_MAGIC_TMPFS: /* 0x1021994 */
       return "tmpfs";
-    case S_MAGIC_TRACEFS: /* 0x74726163 local */
-      return "tracefs";
-    case S_MAGIC_UBIFS: /* 0x24051905 local */
-      return "ubifs";
-    case S_MAGIC_UDF: /* 0x15013346 local */
+    case S_MAGIC_UDF: /* 0x15013346 */
       return "udf";
-    case S_MAGIC_UFS: /* 0x00011954 local */
+    case S_MAGIC_UFS: /* 0x00011954 */
       return "ufs";
-    case S_MAGIC_UFS_BYTESWAPPED: /* 0x54190100 local */
+    case S_MAGIC_UFS_BYTESWAPPED: /* 0x54190100 */
       return "ufs";
-    case S_MAGIC_USBDEVFS: /* 0x9FA2 local */
+    case S_MAGIC_USBDEVFS: /* 0x9FA2 */
       return "usbdevfs";
-    case S_MAGIC_V9FS: /* 0x01021997 local */
-      return "v9fs";
-    case S_MAGIC_VMHGFS: /* 0xBACBACBC remote */
-      return "vmhgfs";
-    case S_MAGIC_VXFS: /* 0xA501FCF5 remote */
-      /* Veritas File System can run in single instance or clustered mode,
-         so mark as remote to cater for the latter case.  */
+    case S_MAGIC_VXFS: /* 0xA501FCF5 */
       return "vxfs";
-    case S_MAGIC_VZFS: /* 0x565A4653 local */
-      return "vzfs";
-    case S_MAGIC_XENFS: /* 0xABBA1974 local */
-      return "xenfs";
-    case S_MAGIC_XENIX: /* 0x012FF7B4 local */
+    case S_MAGIC_XENIX: /* 0x012FF7B4 */
       return "xenix";
-    case S_MAGIC_XFS: /* 0x58465342 local */
+    case S_MAGIC_XFS: /* 0x58465342 */
       return "xfs";
-    case S_MAGIC_XIAFS: /* 0x012FD16D local */
+    case S_MAGIC_XIAFS: /* 0x012FD16D */
       return "xia";
-    case S_MAGIC_ZFS: /* 0x2FC12FC1 local */
-      return "zfs";
 
 # elif __GNU__
     case FSTYPE_UFS:
@@ -545,7 +394,7 @@ human_fstype (STRUCT_STATVFS const *statfsbuf)
 #endif
 }
 
-static char * ATTRIBUTE_WARN_UNUSED_RESULT
+static char *
 human_access (struct stat const *statbuf)
 {
   static char modebuf[12];
@@ -554,219 +403,77 @@ human_access (struct stat const *statbuf)
   return modebuf;
 }
 
-static char * ATTRIBUTE_WARN_UNUSED_RESULT
+static char *
 human_time (struct timespec t)
 {
   static char str[MAX (INT_BUFSIZE_BOUND (intmax_t),
                        (INT_STRLEN_BOUND (int) /* YYYY */
                         + 1 /* because YYYY might equal INT_MAX + 1900 */
                         + sizeof "-MM-DD HH:MM:SS.NNNNNNNNN +ZZZZ"))];
-  static timezone_t tz;
-  if (!tz)
-    tz = tzalloc (getenv ("TZ"));
   struct tm const *tm = localtime (&t.tv_sec);
   if (tm == NULL)
     return timetostr (t.tv_sec, str);
-  nstrftime (str, sizeof str, "%Y-%m-%d %H:%M:%S.%N %z", tm, tz, t.tv_nsec);
+  nstrftime (str, sizeof str, "%Y-%m-%d %H:%M:%S.%N %z", tm, 0, t.tv_nsec);
   return str;
-}
-
-/* PFORMAT points to a '%' followed by a prefix of a format, all of
-   size PREFIX_LEN.  The flags allowed for this format are
-   ALLOWED_FLAGS; remove other printf flags from the prefix, then
-   append SUFFIX.  */
-static void
-make_format (char *pformat, size_t prefix_len, char const *allowed_flags,
-             char const *suffix)
-{
-  char *dst = pformat + 1;
-  char const *src;
-  char const *srclim = pformat + prefix_len;
-  for (src = dst; src < srclim && strchr (printf_flags, *src); src++)
-    if (strchr (allowed_flags, *src))
-      *dst++ = *src;
-  while (src < srclim)
-    *dst++ = *src++;
-  strcpy (dst, suffix);
 }
 
 static void
 out_string (char *pformat, size_t prefix_len, char const *arg)
 {
-  make_format (pformat, prefix_len, "-", "s");
+  strcpy (pformat + prefix_len, "s");
   printf (pformat, arg);
 }
-static int
+static void
 out_int (char *pformat, size_t prefix_len, intmax_t arg)
 {
-  make_format (pformat, prefix_len, "'-+ 0", PRIdMAX);
-  return printf (pformat, arg);
+  strcpy (pformat + prefix_len, PRIdMAX);
+  printf (pformat, arg);
 }
-static int
+static void
 out_uint (char *pformat, size_t prefix_len, uintmax_t arg)
 {
-  make_format (pformat, prefix_len, "'-0", PRIuMAX);
-  return printf (pformat, arg);
+  strcpy (pformat + prefix_len, PRIuMAX);
+  printf (pformat, arg);
 }
 static void
 out_uint_o (char *pformat, size_t prefix_len, uintmax_t arg)
 {
-  make_format (pformat, prefix_len, "-#0", PRIoMAX);
+  strcpy (pformat + prefix_len, PRIoMAX);
   printf (pformat, arg);
 }
 static void
 out_uint_x (char *pformat, size_t prefix_len, uintmax_t arg)
 {
-  make_format (pformat, prefix_len, "-#0", PRIxMAX);
+  strcpy (pformat + prefix_len, PRIxMAX);
   printf (pformat, arg);
 }
-static int
-out_minus_zero (char *pformat, size_t prefix_len)
-{
-  make_format (pformat, prefix_len, "'-+ 0", ".0f");
-  return printf (pformat, -0.25);
-}
 
-/* Output the number of seconds since the Epoch, using a format that
-   acts like printf's %f format.  */
+/* Very specialized function (modifies FORMAT), just so as to avoid
+   duplicating this code between both print_statfs and print_stat.  */
 static void
-out_epoch_sec (char *pformat, size_t prefix_len,
-               struct stat const *statbuf _GL_UNUSED,
-               struct timespec arg)
-{
-  char *dot = memchr (pformat, '.', prefix_len);
-  size_t sec_prefix_len = prefix_len;
-  int width = 0;
-  int precision = 0;
-  bool frac_left_adjust = false;
-
-  if (dot)
-    {
-      sec_prefix_len = dot - pformat;
-      pformat[prefix_len] = '\0';
-
-      if (ISDIGIT (dot[1]))
-        {
-          long int lprec = strtol (dot + 1, NULL, 10);
-          precision = (lprec <= INT_MAX ? lprec : INT_MAX);
-        }
-      else
-        {
-          precision = 9;
-        }
-
-      if (precision && ISDIGIT (dot[-1]))
-        {
-          /* If a nontrivial width is given, subtract the width of the
-             decimal point and PRECISION digits that will be output
-             later.  */
-          char *p = dot;
-          *dot = '\0';
-
-          do
-            --p;
-          while (ISDIGIT (p[-1]));
-
-          long int lwidth = strtol (p, NULL, 10);
-          width = (lwidth <= INT_MAX ? lwidth : INT_MAX);
-          if (1 < width)
-            {
-              p += (*p == '0');
-              sec_prefix_len = p - pformat;
-              int w_d = (decimal_point_len < width
-                         ? width - decimal_point_len
-                         : 0);
-              if (1 < w_d)
-                {
-                  int w = w_d - precision;
-                  if (1 < w)
-                    {
-                      char *dst = pformat;
-                      for (char const *src = dst; src < p; src++)
-                        {
-                          if (*src == '-')
-                            frac_left_adjust = true;
-                          else
-                            *dst++ = *src;
-                        }
-                      sec_prefix_len =
-                        (dst - pformat
-                         + (frac_left_adjust ? 0 : sprintf (dst, "%d", w)));
-                    }
-                }
-            }
-        }
-    }
-
-  int divisor = 1;
-  for (int i = precision; i < 9; i++)
-    divisor *= 10;
-  int frac_sec = arg.tv_nsec / divisor;
-  int int_len;
-
-  if (TYPE_SIGNED (time_t))
-    {
-      bool minus_zero = false;
-      if (arg.tv_sec < 0 && arg.tv_nsec != 0)
-        {
-          int frac_sec_modulus = 1000000000 / divisor;
-          frac_sec = (frac_sec_modulus - frac_sec
-                      - (arg.tv_nsec % divisor != 0));
-          arg.tv_sec += (frac_sec != 0);
-          minus_zero = (arg.tv_sec == 0);
-        }
-      int_len = (minus_zero
-                 ? out_minus_zero (pformat, sec_prefix_len)
-                 : out_int (pformat, sec_prefix_len, arg.tv_sec));
-    }
-  else
-    int_len = out_uint (pformat, sec_prefix_len, arg.tv_sec);
-
-  if (precision)
-    {
-      int prec = (precision < 9 ? precision : 9);
-      int trailing_prec = precision - prec;
-      int ilen = (int_len < 0 ? 0 : int_len);
-      int trailing_width = (ilen < width && decimal_point_len < width - ilen
-                            ? width - ilen - decimal_point_len - prec
-                            : 0);
-      printf ("%s%.*d%-*.*d", decimal_point, prec, frac_sec,
-              trailing_width, trailing_prec, 0);
-    }
-}
-
-/* Print the context information of FILENAME, and return true iff the
-   context could not be obtained.  */
-static bool ATTRIBUTE_WARN_UNUSED_RESULT
-out_file_context (char *pformat, size_t prefix_len, char const *filename)
+out_file_context (char const *filename, char *pformat, size_t prefix_len)
 {
   char *scontext;
-  bool fail = false;
-
   if ((follow_links
        ? getfilecon (filename, &scontext)
        : lgetfilecon (filename, &scontext)) < 0)
     {
       error (0, errno, _("failed to get security context of %s"),
-             quoteaf (filename));
+             quote (filename));
       scontext = NULL;
-      fail = true;
     }
   strcpy (pformat + prefix_len, "s");
   printf (pformat, (scontext ? scontext : "?"));
   if (scontext)
     freecon (scontext);
-  return fail;
 }
 
-/* Print statfs info.  Return zero upon success, nonzero upon failure.  */
-static bool ATTRIBUTE_WARN_UNUSED_RESULT
-print_statfs (char *pformat, size_t prefix_len, unsigned int m,
-              int fd, char const *filename,
+/* print statfs info */
+static void
+print_statfs (char *pformat, size_t prefix_len, char m, char const *filename,
               void const *data)
 {
   STRUCT_STATVFS const *statfsbuf = data;
-  bool fail = false;
 
   switch (m)
     {
@@ -839,154 +546,23 @@ print_statfs (char *pformat, size_t prefix_len, unsigned int m,
     case 'd':
       out_int (pformat, prefix_len, statfsbuf->f_ffree);
       break;
+    case 'C':
+      out_file_context (filename, pformat, prefix_len);
+      break;
     default:
       fputc ('?', stdout);
       break;
     }
-  return fail;
 }
 
-/* Return any bind mounted source for a path.
-   The caller should not free the returned buffer.
-   Return NULL if no bind mount found.  */
-static char const * ATTRIBUTE_WARN_UNUSED_RESULT
-find_bind_mount (char const * name)
-{
-  char const * bind_mount = NULL;
-
-  static struct mount_entry *mount_list;
-  static bool tried_mount_list = false;
-  if (!tried_mount_list) /* attempt/warn once per process.  */
-    {
-      if (!(mount_list = read_file_system_list (false)))
-        error (0, errno, "%s", _("cannot read table of mounted file systems"));
-      tried_mount_list = true;
-    }
-
-  struct stat name_stats;
-  if (stat (name, &name_stats) != 0)
-    return NULL;
-
-  struct mount_entry *me;
-  for (me = mount_list; me; me = me->me_next)
-    {
-      if (me->me_dummy && me->me_devname[0] == '/'
-          && STREQ (me->me_mountdir, name))
-        {
-          struct stat dev_stats;
-
-          if (stat (me->me_devname, &dev_stats) == 0
-              && SAME_INODE (name_stats, dev_stats))
-            {
-              bind_mount = me->me_devname;
-              break;
-            }
-        }
-    }
-
-  return bind_mount;
-}
-
-/* Print mount point.  Return zero upon success, nonzero upon failure.  */
-static bool ATTRIBUTE_WARN_UNUSED_RESULT
-out_mount_point (char const *filename, char *pformat, size_t prefix_len,
-                 const struct stat *statp)
-{
-
-  char const *np = "?", *bp = NULL;
-  char *mp = NULL;
-  bool fail = true;
-
-  /* Look for bind mounts first.  Note we output the immediate alias,
-     rather than further resolving to a base device mount point.  */
-  if (follow_links || !S_ISLNK (statp->st_mode))
-    {
-      char *resolved = canonicalize_file_name (filename);
-      if (!resolved)
-        {
-          error (0, errno, _("failed to canonicalize %s"), quoteaf (filename));
-          goto print_mount_point;
-        }
-      bp = find_bind_mount (resolved);
-      free (resolved);
-      if (bp)
-        {
-          fail = false;
-          goto print_mount_point;
-        }
-    }
-
-  /* If there is no direct bind mount, then navigate
-     back up the tree looking for a device change.
-     Note we don't detect if any of the directory components
-     are bind mounted to the same device, but that's OK
-     since we've not directly queried them.  */
-  if ((mp = find_mount_point (filename, statp)))
-    {
-      /* This dir might be bind mounted to another device,
-         so we resolve the bound source in that case also.  */
-      bp = find_bind_mount (mp);
-      fail = false;
-    }
-
-print_mount_point:
-
-  out_string (pformat, prefix_len, bp ? bp : mp ? mp : np);
-  free (mp);
-  return fail;
-}
-
-static struct timespec
-get_birthtime (int fd, char const *filename, struct stat const *st)
-{
-  struct timespec ts = get_stat_birthtime (st);
-
-#if HAVE_GETATTRAT
-  if (ts.tv_nsec < 0)
-    {
-      nvlist_t *response;
-      if ((fd < 0
-           ? getattrat (AT_FDCWD, XATTR_VIEW_READWRITE, filename, &response)
-           : fgetattr (fd, XATTR_VIEW_READWRITE, &response))
-          == 0)
-        {
-          uint64_t *val;
-          uint_t n;
-          if (nvlist_lookup_uint64_array (response, A_CRTIME, &val, &n) == 0
-              && 2 <= n
-              && val[0] <= TYPE_MAXIMUM (time_t)
-              && val[1] < 1000000000 * 2 /* for leap seconds */)
-            {
-              ts.tv_sec = val[0];
-              ts.tv_nsec = val[1];
-            }
-          nvlist_free (response);
-        }
-    }
-#endif
-
-  return ts;
-}
-
-/* Map a TS with negative TS.tv_nsec to {0,0}.  */
-static inline struct timespec
-neg_to_zero (struct timespec ts)
-{
-  if (0 <= ts.tv_nsec)
-    return ts;
-  struct timespec z = {0, 0};
-  return z;
-}
-
-/* Print stat info.  Return zero upon success, nonzero upon failure.  */
-static bool
-print_stat (char *pformat, size_t prefix_len, unsigned int m,
-            int fd, char const *filename, void const *data)
+/* print stat info */
+static void
+print_stat (char *pformat, size_t prefix_len, char m,
+            char const *filename, void const *data)
 {
   struct stat *statbuf = (struct stat *) data;
   struct passwd *pw_ent;
   struct group *gw_ent;
-  bool fail = false;
 
   switch (m)
     {
@@ -994,19 +570,18 @@ print_stat (char *pformat, size_t prefix_len, unsigned int m,
       out_string (pformat, prefix_len, filename);
       break;
     case 'N':
-      out_string (pformat, prefix_len, quoteaf (filename));
+      out_string (pformat, prefix_len, quote (filename));
       if (S_ISLNK (statbuf->st_mode))
         {
           char *linkname = areadlink_with_size (filename, statbuf->st_size);
           if (linkname == NULL)
             {
               error (0, errno, _("cannot read symbolic link %s"),
-                     quoteaf (filename));
-              return true;
+                     quote (filename));
+              return;
             }
           printf (" -> ");
-          out_string (pformat, prefix_len, quoteaf (linkname));
-          free (linkname);
+          out_string (pformat, prefix_len, quote (linkname));
         }
       break;
     case 'd':
@@ -1037,6 +612,7 @@ print_stat (char *pformat, size_t prefix_len, unsigned int m,
       out_uint (pformat, prefix_len, statbuf->st_uid);
       break;
     case 'U':
+      setpwent ();
       pw_ent = getpwuid (statbuf->st_uid);
       out_string (pformat, prefix_len,
                   pw_ent ? pw_ent->pw_name : "UNKNOWN");
@@ -1045,6 +621,7 @@ print_stat (char *pformat, size_t prefix_len, unsigned int m,
       out_uint (pformat, prefix_len, statbuf->st_gid);
       break;
     case 'G':
+      setgrent ();
       gw_ent = getgrgid (statbuf->st_gid);
       out_string (pformat, prefix_len,
                   gw_ent ? gw_ent->gr_name : "UNKNOWN");
@@ -1052,14 +629,11 @@ print_stat (char *pformat, size_t prefix_len, unsigned int m,
     case 't':
       out_uint_x (pformat, prefix_len, major (statbuf->st_rdev));
       break;
-    case 'm':
-      fail |= out_mount_point (filename, pformat, prefix_len, statbuf);
-      break;
     case 'T':
       out_uint_x (pformat, prefix_len, minor (statbuf->st_rdev));
       break;
     case 's':
-      out_int (pformat, prefix_len, statbuf->st_size);
+      out_uint (pformat, prefix_len, statbuf->st_size);
       break;
     case 'B':
       out_uint (pformat, prefix_len, ST_NBLOCKSIZE);
@@ -1068,47 +642,42 @@ print_stat (char *pformat, size_t prefix_len, unsigned int m,
       out_uint (pformat, prefix_len, ST_NBLOCKS (*statbuf));
       break;
     case 'o':
-      out_uint (pformat, prefix_len, ST_BLKSIZE (*statbuf));
-      break;
-    case 'w':
-      {
-        struct timespec t = get_birthtime (fd, filename, statbuf);
-        if (t.tv_nsec < 0)
-          out_string (pformat, prefix_len, "-");
-        else
-          out_string (pformat, prefix_len, human_time (t));
-      }
-      break;
-    case 'W':
-      out_epoch_sec (pformat, prefix_len, statbuf,
-                     neg_to_zero (get_birthtime (fd, filename, statbuf)));
+      out_uint (pformat, prefix_len, statbuf->st_blksize);
       break;
     case 'x':
       out_string (pformat, prefix_len, human_time (get_stat_atime (statbuf)));
       break;
     case 'X':
-      out_epoch_sec (pformat, prefix_len, statbuf, get_stat_atime (statbuf));
+      if (TYPE_SIGNED (time_t))
+        out_int (pformat, prefix_len, statbuf->st_atime);
+      else
+        out_uint (pformat, prefix_len, statbuf->st_atime);
       break;
     case 'y':
       out_string (pformat, prefix_len, human_time (get_stat_mtime (statbuf)));
       break;
     case 'Y':
-      out_epoch_sec (pformat, prefix_len, statbuf, get_stat_mtime (statbuf));
+      if (TYPE_SIGNED (time_t))
+        out_int (pformat, prefix_len, statbuf->st_mtime);
+      else
+        out_uint (pformat, prefix_len, statbuf->st_mtime);
       break;
     case 'z':
       out_string (pformat, prefix_len, human_time (get_stat_ctime (statbuf)));
       break;
     case 'Z':
-      out_epoch_sec (pformat, prefix_len, statbuf, get_stat_ctime (statbuf));
+      if (TYPE_SIGNED (time_t))
+        out_int (pformat, prefix_len, statbuf->st_ctime);
+      else
+        out_uint (pformat, prefix_len, statbuf->st_ctime);
       break;
     case 'C':
-      fail |= out_file_context (pformat, prefix_len, filename);
+      out_file_context (filename, pformat, prefix_len);
       break;
     default:
       fputc ('?', stdout);
       break;
     }
-  return fail;
 }
 
 /* Output a single-character \ escape.  */
@@ -1123,9 +692,6 @@ print_esc_char (char c)
       break;
     case 'b':			/* Backspace. */
       c ='\b';
-      break;
-    case 'e':			/* Escape. */
-      c ='\x1B';
       break;
     case 'f':			/* Form feed. */
       c ='\f';
@@ -1146,25 +712,19 @@ print_esc_char (char c)
     case '\\':
       break;
     default:
-      error (0, 0, _("warning: unrecognized escape '\\%c'"), c);
+      error (0, 0, _("warning: unrecognized escape `\\%c'"), c);
       break;
     }
   putchar (c);
 }
 
-/* Print the information specified by the format string, FORMAT,
-   calling PRINT_FUNC for each %-directive encountered.
-   Return zero upon success, nonzero upon failure.  */
-static bool ATTRIBUTE_WARN_UNUSED_RESULT
-print_it (char const *format, int fd, char const *filename,
-          bool (*print_func) (char *, size_t, unsigned int,
-                              int, char const *, void const *),
+static void
+print_it (char const *format, char const *filename,
+          void (*print_func) (char *, size_t, char, char const *, void const *),
           void const *data)
 {
-  bool fail = false;
-
-  /* Add 2 to accommodate our conversion of the stat '%s' format string
-     to the longer printf '%llu' one.  */
+  /* Add 2 to accommodate our conversion of the stat `%s' format string
+     to the longer printf `%llu' one.  */
   enum
     {
       MAX_ADDITIONAL_BYTES =
@@ -1181,17 +741,12 @@ print_it (char const *format, int fd, char const *filename,
         {
         case '%':
           {
-            size_t len = strspn (b + 1, printf_flags);
+            size_t len = strspn (b + 1, "#-+.I 0123456789");
             char const *fmt_char = b + len + 1;
-            fmt_char += strspn (fmt_char, digits);
-            if (*fmt_char == '.')
-              fmt_char += 1 + strspn (fmt_char + 1, digits);
-            len = fmt_char - (b + 1);
-            unsigned int fmt_code = *fmt_char;
             memcpy (dest, b, len + 1);
 
             b = fmt_char;
-            switch (fmt_code)
+            switch (*fmt_char)
               {
               case '\0':
                 --b;
@@ -1202,13 +757,12 @@ print_it (char const *format, int fd, char const *filename,
                     dest[len + 1] = *fmt_char;
                     dest[len + 2] = '\0';
                     error (EXIT_FAILURE, 0, _("%s: invalid directive"),
-                           quote (dest));
+                           quotearg_colon (dest));
                   }
                 putchar ('%');
                 break;
               default:
-                fail |= print_func (dest, len + 1, fmt_code,
-                                    fd, filename, data);
+                print_func (dest, len + 1, *fmt_char, filename, data);
                 break;
               }
             break;
@@ -1267,175 +821,110 @@ print_it (char const *format, int fd, char const *filename,
   free (dest);
 
   fputs (trailing_delim, stdout);
-
-  return fail;
 }
 
 /* Stat the file system and print what we find.  */
-static bool ATTRIBUTE_WARN_UNUSED_RESULT
-do_statfs (char const *filename, char const *format)
+static bool
+do_statfs (char const *filename, bool terse, char const *format)
 {
   STRUCT_STATVFS statfsbuf;
 
   if (STREQ (filename, "-"))
     {
       error (0, 0, _("using %s to denote standard input does not work"
-                     " in file system mode"), quoteaf (filename));
+                     " in file system mode"), quote (filename));
       return false;
     }
 
   if (STATFS (filename, &statfsbuf) != 0)
     {
       error (0, errno, _("cannot read file system information for %s"),
-             quoteaf (filename));
+             quote (filename));
       return false;
     }
 
-  bool fail = print_it (format, -1, filename, print_statfs, &statfsbuf);
-  return ! fail;
+  if (format == NULL)
+    {
+      format = (terse
+                ? "%n %i %l %t %s %S %b %f %a %c %d\n"
+                : "  File: \"%n\"\n"
+                "    ID: %-8i Namelen: %-7l Type: %T\n"
+                "Block size: %-10s Fundamental block size: %S\n"
+                "Blocks: Total: %-10b Free: %-10f Available: %a\n"
+                "Inodes: Total: %-10c Free: %d\n");
+    }
+
+  print_it (format, filename, print_statfs, &statfsbuf);
+  return true;
 }
 
 /* stat the file and print what we find */
-static bool ATTRIBUTE_WARN_UNUSED_RESULT
-do_stat (char const *filename, char const *format,
-         char const *format2)
+static bool
+do_stat (char const *filename, bool terse, char const *format)
 {
-  int fd = STREQ (filename, "-") ? 0 : -1;
   struct stat statbuf;
 
-  if (0 <= fd)
+  if (STREQ (filename, "-"))
     {
-      if (fstat (fd, &statbuf) != 0)
+      if (fstat (STDIN_FILENO, &statbuf) != 0)
         {
           error (0, errno, _("cannot stat standard input"));
           return false;
         }
     }
-  /* We can't use the shorter
-     (follow_links?stat:lstat) (filename, &statbug)
-     since stat might be a function-like macro.  */
-  else if ((follow_links
-            ? stat (filename, &statbuf)
-            : lstat (filename, &statbuf)) != 0)
+  else if ((follow_links ? stat : lstat) (filename, &statbuf) != 0)
     {
-      error (0, errno, _("cannot stat %s"), quoteaf (filename));
+      error (0, errno, _("cannot stat %s"), quote (filename));
       return false;
     }
 
-  if (S_ISBLK (statbuf.st_mode) || S_ISCHR (statbuf.st_mode))
-    format = format2;
-
-  bool fail = print_it (format, fd, filename, print_stat, &statbuf);
-  return ! fail;
-}
-
-/* Return an allocated format string in static storage that
-   corresponds to whether FS and TERSE options were declared.  */
-static char *
-default_format (bool fs, bool terse, bool device)
-{
-  char *format;
-  if (fs)
-    {
-      if (terse)
-        format = xstrdup ("%n %i %l %t %s %S %b %f %a %c %d\n");
-      else
-        {
-          /* TRANSLATORS: This string uses format specifiers from
-             'stat --help' with --file-system, and NOT from printf.  */
-          format = xstrdup (_("  File: \"%n\"\n"
-                              "    ID: %-8i Namelen: %-7l Type: %T\n"
-                              "Block size: %-10s Fundamental block size: %S\n"
-                              "Blocks: Total: %-10b Free: %-10f Available: %a\n"
-                              "Inodes: Total: %-10c Free: %d\n"));
-        }
-    }
-  else /* ! fs */
+  if (format == NULL)
     {
       if (terse)
         {
-          if (0 < is_selinux_enabled ())
-            format = xstrdup ("%n %s %b %f %u %g %D %i %h %t %T"
-                              " %X %Y %Z %W %o %C\n");
-          else
-            format = xstrdup ("%n %s %b %f %u %g %D %i %h %t %T"
-                              " %X %Y %Z %W %o\n");
+          format = "%n %s %b %f %u %g %D %i %h %t %T %X %Y %Z %o\n";
         }
       else
         {
-          char *temp;
-          /* TRANSLATORS: This string uses format specifiers from
-             'stat --help' without --file-system, and NOT from printf.  */
-          format = xstrdup (_("\
-  File: %N\n\
-  Size: %-10s\tBlocks: %-10b IO Block: %-6o %F\n\
-"));
-
-          temp = format;
-          if (device)
+          /* Temporary hack to match original output until conditional
+             implemented.  */
+          if (S_ISBLK (statbuf.st_mode) || S_ISCHR (statbuf.st_mode))
             {
-              /* TRANSLATORS: This string uses format specifiers from
-                 'stat --help' without --file-system, and NOT from printf.  */
-              format = xasprintf ("%s%s", format, _("\
-" "Device: %Dh/%dd\tInode: %-10i  Links: %-5h Device type: %t,%T\n\
-"));
+              format =
+                "  File: %N\n"
+                "  Size: %-10s\tBlocks: %-10b IO Block: %-6o %F\n"
+                "Device: %Dh/%dd\tInode: %-10i  Links: %-5h"
+                " Device type: %t,%T\n"
+                "Access: (%04a/%10.10A)  Uid: (%5u/%8U)   Gid: (%5g/%8G)\n"
+                "Access: %x\n" "Modify: %y\n" "Change: %z\n";
             }
           else
             {
-              /* TRANSLATORS: This string uses format specifiers from
-                 'stat --help' without --file-system, and NOT from printf.  */
-              format = xasprintf ("%s%s", format, _("\
-" "Device: %Dh/%dd\tInode: %-10i  Links: %h\n\
-"));
+              format =
+                "  File: %N\n"
+                "  Size: %-10s\tBlocks: %-10b IO Block: %-6o %F\n"
+                "Device: %Dh/%dd\tInode: %-10i  Links: %h\n"
+                "Access: (%04a/%10.10A)  Uid: (%5u/%8U)   Gid: (%5g/%8G)\n"
+                "Access: %x\n" "Modify: %y\n" "Change: %z\n";
             }
-          free (temp);
-
-          temp = format;
-          /* TRANSLATORS: This string uses format specifiers from
-             'stat --help' without --file-system, and NOT from printf.  */
-          format = xasprintf ("%s%s", format, _("\
-" "Access: (%04a/%10.10A)  Uid: (%5u/%8U)   Gid: (%5g/%8G)\n\
-"));
-          free (temp);
-
-          if (0 < is_selinux_enabled ())
-            {
-              temp = format;
-              /* TRANSLATORS: This string uses format specifiers from
-                 'stat --help' without --file-system, and NOT from printf.  */
-              format = xasprintf ("%s%s", format, _("Context: %C\n"));
-              free (temp);
-            }
-
-          temp = format;
-          /* TRANSLATORS: This string uses format specifiers from
-             'stat --help' without --file-system, and NOT from printf.  */
-          format = xasprintf ("%s%s", format,
-                              _("Access: %x\n"
-                                "Modify: %y\n"
-                                "Change: %z\n"
-                                " Birth: %w\n"));
-          free (temp);
         }
     }
-  return format;
+  print_it (format, filename, print_stat, &statbuf);
+  return true;
 }
 
 void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
-    emit_try_help ();
+    fprintf (stderr, _("Try `%s --help' for more information.\n"),
+             program_name);
   else
     {
       printf (_("Usage: %s [OPTION]... FILE...\n"), program_name);
       fputs (_("\
 Display file or file system status.\n\
-"), stdout);
-
-      emit_mandatory_arg_note ();
-
-      fputs (_("\
+\n\
   -L, --dereference     follow links\n\
   -f, --file-system     display file system status instead of file status\n\
 "), stdout);
@@ -1443,8 +932,8 @@ Display file or file system status.\n\
   -c  --format=FORMAT   use the specified FORMAT instead of the default;\n\
                           output a newline after each use of FORMAT\n\
       --printf=FORMAT   like --format, but interpret backslash escapes,\n\
-                          and do not output a mandatory trailing newline;\n\
-                          if you want a newline, include \\n in FORMAT\n\
+                          and do not output a mandatory trailing newline.\n\
+                          If you want a newline, include \\n in FORMAT.\n\
   -t, --terse           print the information in terse form\n\
 "), stdout);
       fputs (HELP_OPTION_DESCRIPTION, stdout);
@@ -1453,65 +942,63 @@ Display file or file system status.\n\
       fputs (_("\n\
 The valid format sequences for files (without --file-system):\n\
 \n\
-  %a   access rights in octal (note '#' and '0' printf flags)\n\
-  %A   access rights in human readable form\n\
-  %b   number of blocks allocated (see %B)\n\
-  %B   the size in bytes of each block reported by %b\n\
+  %a   Access rights in octal\n\
+  %A   Access rights in human readable form\n\
+  %b   Number of blocks allocated (see %B)\n\
+  %B   The size in bytes of each block reported by %b\n\
   %C   SELinux security context string\n\
 "), stdout);
       fputs (_("\
-  %d   device number in decimal\n\
-  %D   device number in hex\n\
-  %f   raw mode in hex\n\
-  %F   file type\n\
-  %g   group ID of owner\n\
-  %G   group name of owner\n\
+  %d   Device number in decimal\n\
+  %D   Device number in hex\n\
+  %f   Raw mode in hex\n\
+  %F   File type\n\
+  %g   Group ID of owner\n\
+  %G   Group name of owner\n\
 "), stdout);
       fputs (_("\
-  %h   number of hard links\n\
-  %i   inode number\n\
-  %m   mount point\n\
-  %n   file name\n\
-  %N   quoted file name with dereference if symbolic link\n\
-  %o   optimal I/O transfer size hint\n\
-  %s   total size, in bytes\n\
-  %t   major device type in hex, for character/block device special files\n\
-  %T   minor device type in hex, for character/block device special files\n\
+  %h   Number of hard links\n\
+  %i   Inode number\n\
+  %n   File name\n\
+  %N   Quoted file name with dereference if symbolic link\n\
+  %o   I/O block size\n\
+  %s   Total size, in bytes\n\
+  %t   Major device type in hex\n\
+  %T   Minor device type in hex\n\
 "), stdout);
       fputs (_("\
-  %u   user ID of owner\n\
-  %U   user name of owner\n\
-  %w   time of file birth, human-readable; - if unknown\n\
-  %W   time of file birth, seconds since Epoch; 0 if unknown\n\
-  %x   time of last access, human-readable\n\
-  %X   time of last access, seconds since Epoch\n\
-  %y   time of last data modification, human-readable\n\
-  %Y   time of last data modification, seconds since Epoch\n\
-  %z   time of last status change, human-readable\n\
-  %Z   time of last status change, seconds since Epoch\n\
+  %u   User ID of owner\n\
+  %U   User name of owner\n\
+  %x   Time of last access\n\
+  %X   Time of last access as seconds since Epoch\n\
+  %y   Time of last modification\n\
+  %Y   Time of last modification as seconds since Epoch\n\
+  %z   Time of last change\n\
+  %Z   Time of last change as seconds since Epoch\n\
 \n\
 "), stdout);
 
       fputs (_("\
 Valid format sequences for file systems:\n\
 \n\
-  %a   free blocks available to non-superuser\n\
-  %b   total data blocks in file system\n\
-  %c   total file nodes in file system\n\
-  %d   free file nodes in file system\n\
-  %f   free blocks in file system\n\
+  %a   Free blocks available to non-superuser\n\
+  %b   Total data blocks in file system\n\
+  %c   Total file nodes in file system\n\
+  %d   Free file nodes in file system\n\
+  %f   Free blocks in file system\n\
+  %C   SELinux security context string\n\
 "), stdout);
       fputs (_("\
-  %i   file system ID in hex\n\
-  %l   maximum length of filenames\n\
-  %n   file name\n\
-  %s   block size (for faster transfers)\n\
-  %S   fundamental block size (for block counts)\n\
-  %t   file system type in hex\n\
-  %T   file system type in human readable form\n\
+  %i   File System ID in hex\n\
+  %l   Maximum length of filenames\n\
+  %n   File name\n\
+  %s   Block size (for faster transfers)\n\
+  %S   Fundamental block size (for block counts)\n\
+  %t   Type in hex\n\
+  %T   Type in human readable form\n\
 "), stdout);
       printf (USAGE_BUILTIN_WARNING, PROGRAM_NAME);
-      emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info ();
     }
   exit (status);
 }
@@ -1524,7 +1011,6 @@ main (int argc, char *argv[])
   bool fs = false;
   bool terse = false;
   char *format = NULL;
-  char *format2;
   bool ok = true;
 
   initialize_main (&argc, &argv);
@@ -1533,13 +1019,9 @@ main (int argc, char *argv[])
   bindtextdomain (PACKAGE, LOCALEDIR);
   textdomain (PACKAGE);
 
-  struct lconv const *locale = localeconv ();
-  decimal_point = (locale->decimal_point[0] ? locale->decimal_point : ".");
-  decimal_point_len = strlen (decimal_point);
-
   atexit (close_stdout);
 
-  while ((c = getopt_long (argc, argv, "c:fLt", long_options, NULL)) != -1)
+  while ((c = getopt_long (argc, argv, "c:fLtZ", long_options, NULL)) != -1)
     {
       switch (c)
         {
@@ -1567,6 +1049,15 @@ main (int argc, char *argv[])
           terse = true;
           break;
 
+        case 'Z':  /* FIXME: remove in 2010 */
+          /* Ignore, for compatibility with distributions
+             that implemented this before upstream.
+             But warn of impending removal.  */
+          error (0, 0,
+                 _("the --context (-Z) option is obsolete and will be removed\n"
+                   "in a future release"));
+          break;
+
         case_GETOPT_HELP_CHAR;
 
         case_GETOPT_VERSION_CHAR (PROGRAM_NAME, AUTHORS);
@@ -1582,18 +1073,10 @@ main (int argc, char *argv[])
       usage (EXIT_FAILURE);
     }
 
-  if (format)
-    format2 = format;
-  else
-    {
-      format = default_format (fs, terse, false);
-      format2 = default_format (fs, terse, true);
-    }
-
   for (i = optind; i < argc; i++)
     ok &= (fs
-           ? do_statfs (argv[i], format)
-           : do_stat (argv[i], format, format2));
+           ? do_statfs (argv[i], terse, format)
+           : do_stat (argv[i], terse, format));
 
-  return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+  exit (ok ? EXIT_SUCCESS : EXIT_FAILURE);
 }

@@ -1,6 +1,9 @@
+/* -*- buffer-read-only: t -*- vi: set ro: */
+/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
+#line 1
 /* unlinkdir.h - determine (and maybe change) whether we can unlink directories
 
-   Copyright (C) 2005, 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2005 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by

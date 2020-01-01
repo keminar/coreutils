@@ -1,6 +1,6 @@
 /* Generate time strings directly to the output.  */
 
-/* Copyright (C) 2005, 2009-2016 Free Software Foundation, Inc.
+/* Copyright (C) 2005 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -23,7 +23,7 @@
    large buffer that nstrftime would require.
 
    Output to stream FP the result of formatting (according to the
-   nstrftime format string, FMT) the time data, *TM, and the ZONE
+   nstrftime format string, FMT) the time data, *TM, and the UTC
    and NANOSECONDS values.  */
 size_t fprintftime (FILE *fp, char const *fmt, struct tm const *tm,
-                    timezone_t zone, int nanoseconds);
+		    int utc, int nanoseconds);

@@ -1,5 +1,5 @@
 /* Create a hard link relative to open directories.
-   Copyright (C) 2009-2016 Free Software Foundation, Inc.
+   Copyright (C) 2009 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -43,7 +44,7 @@
 # endif
 #endif
 
-#if !HAVE_LINKAT || LINKAT_SYMLINK_NOTSUP
+#if !HAVE_LINKAT
 
 /* Create a link.  If FILE1 is a symlink, either create a hardlink to
    that symlink, or fake it by creating an identical symlink.  */
@@ -165,40 +166,6 @@ link_follow (char const *file1, char const *file2)
 }
 # endif /* 0 < LINK_FOLLOWS_SYMLINKS */
 
-/* On Solaris, link() doesn't follow symlinks by default, but does so as soon
-   as a library or executable takes part in the program that has been compiled
-   with "c99" or "cc -xc99=all" or "cc ... /usr/lib/values-xpg4.o ...".  */
-# if LINK_FOLLOWS_SYMLINKS == -1
-
-/* Reduce the penalty of link_immediate and link_follow by incorporating the
-   knowledge that link()'s behaviour depends on the __xpg4 variable.  */
-extern int __xpg4;
-
-static int
-solaris_optimized_link_immediate (char const *file1, char const *file2)
-{
-  if (__xpg4 == 0)
-    return link (file1, file2);
-  return link_immediate (file1, file2);
-}
-
-static int
-solaris_optimized_link_follow (char const *file1, char const *file2)
-{
-  if (__xpg4 != 0)
-    return link (file1, file2);
-  return link_follow (file1, file2);
-}
-
-#  define link_immediate solaris_optimized_link_immediate
-#  define link_follow solaris_optimized_link_follow
-
-# endif
-
-#endif /* !HAVE_LINKAT || LINKAT_SYMLINK_NOTSUP  */
-
-#if !HAVE_LINKAT
-
 /* Create a link to FILE1, in the directory open on descriptor FD1, to FILE2,
    in the directory open on descriptor FD2.  If FILE1 is a symlink, FLAG
    controls whether to dereference FILE1 first.  If possible, do it without
@@ -221,6 +188,83 @@ linkat (int fd1, char const *file1, int fd2, char const *file2, int flag)
 #else /* HAVE_LINKAT */
 
 # undef linkat
+
+/* Read a symlink, like areadlink, but relative to FD.  */
+
+static char *
+areadlinkat (int fd, char const *filename)
+{
+  /* The initial buffer size for the link value.  A power of 2
+     detects arithmetic overflow earlier, but is not required.  */
+# define INITIAL_BUF_SIZE 1024
+
+  /* Allocate the initial buffer on the stack.  This way, in the common
+     case of a symlink of small size, we get away with a single small malloc()
+     instead of a big malloc() followed by a shrinking realloc().  */
+  char initial_buf[INITIAL_BUF_SIZE];
+
+  char *buffer = initial_buf;
+  size_t buf_size = sizeof (initial_buf);
+
+  while (1)
+    {
+      /* Attempt to read the link into the current buffer.  */
+      ssize_t link_length = readlinkat (fd, filename, buffer, buf_size);
+
+      /* On AIX 5L v5.3 and HP-UX 11i v2 04/09, readlink returns -1
+         with errno == ERANGE if the buffer is too small.  */
+      if (link_length < 0 && errno != ERANGE)
+        {
+          if (buffer != initial_buf)
+            {
+              int saved_errno = errno;
+              free (buffer);
+              errno = saved_errno;
+            }
+          return NULL;
+        }
+
+      if ((size_t) link_length < buf_size)
+        {
+          buffer[link_length++] = '\0';
+
+          /* Return it in a chunk of memory as small as possible.  */
+          if (buffer == initial_buf)
+            {
+              buffer = (char *) malloc (link_length);
+              if (buffer == NULL)
+                /* errno is ENOMEM.  */
+                return NULL;
+              memcpy (buffer, initial_buf, link_length);
+            }
+          else
+            {
+              /* Shrink buffer before returning it.  */
+              if ((size_t) link_length < buf_size)
+                {
+                  char *smaller_buffer = (char *) realloc (buffer, link_length);
+
+                  if (smaller_buffer != NULL)
+                    buffer = smaller_buffer;
+                }
+            }
+          return buffer;
+        }
+
+      if (buffer != initial_buf)
+        free (buffer);
+      buf_size *= 2;
+      if (SSIZE_MAX < buf_size || (SIZE_MAX / 2 < SSIZE_MAX && buf_size == 0))
+        {
+          errno = ENOMEM;
+          return NULL;
+        }
+      buffer = (char *) malloc (buf_size);
+      if (buffer == NULL)
+        /* errno is ENOMEM.  */
+        return NULL;
+    }
+}
 
 /* Create a link.  If FILE1 is a symlink, create a hardlink to the
    canonicalized file.  */
@@ -295,46 +339,12 @@ linkat_follow (int fd1, char const *file1, int fd2, char const *file2)
 int
 rpl_linkat (int fd1, char const *file1, int fd2, char const *file2, int flag)
 {
+  if (!flag)
+    return linkat (fd1, file1, fd2, file2, flag);
   if (flag & ~AT_SYMLINK_FOLLOW)
     {
       errno = EINVAL;
       return -1;
-    }
-
-# if LINKAT_TRAILING_SLASH_BUG
-  /* Reject trailing slashes on non-directories.  */
-  {
-    size_t len1 = strlen (file1);
-    size_t len2 = strlen (file2);
-    if ((len1 && file1[len1 - 1] == '/')
-        || (len2 && file2[len2 - 1] == '/'))
-      {
-        /* Let linkat() decide whether hard-linking directories is legal.
-           If fstatat() fails, then linkat() should fail for the same reason;
-           if fstatat() succeeds, require a directory.  */
-        struct stat st;
-        if (fstatat (fd1, file1, &st, flag ? 0 : AT_SYMLINK_NOFOLLOW))
-          return -1;
-        if (!S_ISDIR (st.st_mode))
-          {
-            errno = ENOTDIR;
-            return -1;
-          }
-      }
-  }
-# endif
-
-  if (!flag)
-    {
-      int result = linkat (fd1, file1, fd2, file2, flag);
-# if LINKAT_SYMLINK_NOTSUP
-      /* OS X 10.10 has linkat() but it doesn't support
-         hardlinks to symlinks.  Fallback to our emulation
-         in that case.  */
-      if (result == -1 && (errno == ENOTSUP || errno == EOPNOTSUPP))
-        return at_func2 (fd1, file1, fd2, file2, link_immediate);
-# endif
-      return result;
     }
 
   /* Cache the information on whether the system call really works.  */
